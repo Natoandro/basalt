@@ -10,10 +10,11 @@ This document provides context and guidelines for AI coding assistants working o
 
 ### Current State
 
-- **Phase**: Planning / Early Development
-- **Codebase**: Currently contains Charcoal (TypeScript/Node.js) for GitHub
-- **Target**: Rust rewrite with multi-provider support
+- **Phase**: Early Development
+- **Codebase**: Rust project initialized; contains legacy Charcoal (TypeScript/Node.js) for GitHub
+- **Target**: Multi-provider support starting with GitLab
 - **MVP**: GitLab provider with core stacking features
+- **Project setup**: ✅ Complete (Cargo initialized, CLI framework in place, CI configured)
 
 ### Key Facts
 
@@ -22,6 +23,7 @@ This document provides context and guidelines for AI coding assistants working o
 - **First provider target**: GitLab (using `glab` CLI)
 - **Second provider target**: GitHub (using `gh` CLI)
 - **Philosophy**: Local-first, provider-agnostic, CLI-native
+- **Metadata format**: YAML (human-readable, easy to edit)
 
 ---
 
@@ -64,7 +66,7 @@ basalt does **NOT** directly call provider APIs. Instead:
 
 ### 3. Local-First Philosophy
 
-- Stack metadata lives in `.basalt/` directory
+- Stack metadata lives in `.git/basalt/` directory (inside `.git/` so it's never committed)
 - Never require network for read-only operations
 - Git is the source of truth for branch structure
 - Metadata augments Git, doesn't replace it
@@ -270,30 +272,35 @@ pr_title_prefix = "[Stack]"
 
 ## Metadata Storage
 
+### Location
+
+Metadata is stored in `.git/basalt/` directory:
+- **Never committed** (`.git/` is always ignored by git)
+- **Co-located with git metadata** (clean repository root)
+- **Automatically cleaned** if `.git/` is removed
+- **Precedent**: Similar to how git-lfs uses `.git/lfs/`
+
 ### Format
 
-Store in `.basalt/metadata.json`:
+Store in `.git/basalt/metadata.yml`:
 
-```json
-{
-  "version": "1",
-  "provider": "gitlab",
-  "base_branch": "main",
-  "branches": {
-    "feature-part-1": {
-      "review_id": "!123",
-      "review_url": "https://gitlab.com/...",
-      "parent": "main",
-      "created_at": "2024-01-01T00:00:00Z"
-    },
-    "feature-part-2": {
-      "review_id": "!124",
-      "review_url": "https://gitlab.com/...",
-      "parent": "feature-part-1",
-      "created_at": "2024-01-01T00:00:00Z"
-    }
-  }
-}
+```yaml
+version: "1"
+provider: gitlab
+base_branch: main
+
+branches:
+  feature-part-1:
+    review_id: "!123"
+    review_url: "https://gitlab.com/..."
+    parent: main
+    created_at: "2024-01-01T00:00:00Z"
+  
+  feature-part-2:
+    review_id: "!124"
+    review_url: "https://gitlab.com/..."
+    parent: feature-part-1
+    created_at: "2024-01-01T00:00:00Z"
 ```
 
 ### Metadata Rules
@@ -302,6 +309,8 @@ Store in `.basalt/metadata.json`:
 - Provide migration path for version changes
 - Never trust metadata without validating against git
 - Handle missing/corrupted metadata gracefully
+- Create `.git/basalt/` directory if it doesn't exist
+- Fail gracefully if `.git/` directory doesn't exist (not a git repo)
 
 ---
 
@@ -315,7 +324,8 @@ Store in `.basalt/metadata.json`:
   - `glab mr create --fill --draft --json` — Create MR
   - `glab mr update <id> --json` — Update MR
   - `glab mr view <id> --json` — Get MR details
-- Parse JSON output using `serde_json`
+- Parse JSON output from provider CLIs using `serde_json`
+- Parse YAML metadata files using `serde_yaml`
 - Store MR ID (with `!` prefix) in metadata
 
 ### GitHub Provider (Post-MVP)
@@ -504,6 +514,28 @@ cargo check
 ---
 
 **Remember**: basalt is local-first, provider-agnostic, and explicit. When adding features, always ask: "Does this work for all providers?" and "Is this behavior predictable and transparent?"
+
+---
+
+## Project Setup (Completed)
+
+The following foundational work has been completed:
+
+- ✅ Rust project initialized with `cargo init --name bt`
+- ✅ CLI framework configured using `clap` with derive macros
+- ✅ Basic command structure implemented (init, submit, restack, status)
+- ✅ Dependencies added: clap, anyhow, thiserror, serde, serde_json, toml
+- ✅ GitHub Actions CI workflow configured for:
+  - Multi-platform testing (Linux, macOS, Windows)
+  - Code formatting checks (rustfmt)
+  - Linting (clippy)
+  - Code coverage (tarpaulin)
+  - Release binary builds
+- ✅ .gitignore updated for Rust artifacts
+- ✅ Basic error handling structure in place
+- ✅ Metadata location decided: `.git/basalt/` (never committed, clean workspace)
+
+**Next steps**: Begin implementing the Provider Abstraction Layer (Section 1 of MVP tasks in README.md)
 
 ---
 

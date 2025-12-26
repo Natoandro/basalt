@@ -70,8 +70,18 @@ This approach leads to:
 basalt uses a clean provider interface that abstracts:
 - **Authentication** — Delegated to provider CLIs
 - **Review creation/updates** — MRs, PRs, etc.
-- **Metadata storage** — Branch → review ID mapping
+- **Metadata storage** — Branch → review ID mapping (stored in `.git/basalt/metadata.yml`)
 - **Provider detection** — Auto-detect from Git remotes
+
+### Metadata Location
+
+basalt stores its metadata in **`.git/basalt/metadata.yml`** (inside the `.git/` directory):
+- ✅ **Never accidentally committed** — `.git/` is always ignored by git
+- ✅ **Clean workspace** — Doesn't clutter your repository root
+- ✅ **Auto-cleanup** — Removed if `.git/` is deleted
+- ✅ **Following precedent** — Similar to how git-lfs uses `.git/lfs/`
+
+Team-wide configuration can optionally be stored in `.basalt.toml` in the repository root (this can be committed).
 
 ### Hard Dependencies
 
@@ -95,15 +105,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 
 ### MVP Tasks (Rust Rewrite + GitLab Provider)
 
-#### 1. Project Setup
-
-- [ ] Initialize Rust project structure (`cargo init`)
-- [ ] Set up CLI framework (clap or similar)
-- [ ] Define binary name: `bt`
-- [ ] Configure build tooling and CI
-- [ ] Define provider trait/interface
-
-#### 2. Provider Abstraction Layer
+#### 1. Provider Abstraction Layer
 
 - [ ] Define `Provider` trait
 - [ ] Define review metadata structures
@@ -111,32 +113,29 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Create mock provider for testing
 - [ ] Implement provider detection logic
 
-#### 3. GitLab Provider Implementation
+#### 2. GitLab Provider Implementation
 
 - [ ] Implement GitLab provider
-- [ ] Verify `glab` is installed and configured
-- [ ] Verify `glab auth status` succeeds
 - [ ] Implement MR creation via `glab mr create`
 - [ ] Implement MR update logic
 - [ ] Parse JSON output from `glab` commands
-- [ ] Store branch → MR ID mappings
 
-#### 4. Environment & Dependency Checks
+#### 3. Environment & Dependency Checks
 
 - [ ] Verify execution inside a Git repository
 - [ ] Verify required provider CLI is available
 - [ ] Verify provider authentication
 - [ ] Provide clear, actionable error messages
 
-#### 5. Repository Initialization (`bt init`)
+#### 4. Repository Initialization (`bt init`)
 
-- [ ] Create config directory (e.g. `.basalt/`)
+- [ ] Create config directory (`.git/basalt/`)
 - [ ] Auto-detect Git provider from remote
 - [ ] Detect and store default base branch
 - [ ] Persist minimal config (TOML or JSON)
 - [ ] Support provider override flag
 
-#### 6. Stack Detection & Validation
+#### 5. Stack Detection & Validation
 
 - [ ] Detect current branch
 - [ ] Walk linear ancestry up to base branch
@@ -144,7 +143,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Build in-memory stack representation
 - [ ] Abort on ambiguous or unsupported graphs
 
-#### 7. Stack Submission (`bt submit`)
+#### 6. Stack Submission (`bt submit`)
 
 - [ ] Enumerate stack bottom → top
 - [ ] Checkout each branch
@@ -152,10 +151,9 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Create review via provider
 - [ ] Set appropriate metadata (draft status, etc.)
 - [ ] Update review if it already exists
-- [ ] Store review ID and URL
 - [ ] Print submission summary
 
-#### 8. Restacking (`bt restack`)
+#### 7. Restacking (`bt restack`)
 
 - [ ] Rebase first stack branch onto base
 - [ ] Rebase each subsequent branch onto its parent
@@ -163,7 +161,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Force-push rebased branches
 - [ ] Handle rebase failures gracefully
 
-#### 9. Metadata Storage
+#### 8. Metadata Storage
 
 - [ ] Design metadata format (per-provider)
 - [ ] Store branch → review ID mapping
@@ -171,7 +169,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Load metadata on subsequent runs
 - [ ] Handle metadata migration/versioning
 
-#### 10. Output & UX
+#### 9. Output & UX
 
 - [ ] Deterministic, readable CLI output
 - [ ] Success and failure indicators
@@ -179,7 +177,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Progress indicators for multi-step operations
 - [ ] Colored output (optional, respects NO_COLOR)
 
-#### 11. Documentation
+#### 10. Documentation
 
 - [ ] Write comprehensive README
 - [ ] Installation instructions (cargo install, binaries)
@@ -187,7 +185,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] End-to-end workflow examples
 - [ ] Migration guide from Charcoal
 
-#### 12. Testing
+#### 11. Testing
 
 - [ ] Unit tests for stack logic
 - [ ] Provider trait tests with mock provider
@@ -248,7 +246,7 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 - [ ] Configurable base branch per stack
 - [ ] Draft vs ready review policy
 - [ ] Force-push safety controls
-- [ ] Team-wide configuration support (`.basalt.toml` in repo)
+- [ ] Team-wide configuration support (`.basalt.toml` in repo root)
 - [ ] Per-provider configuration overrides
 
 #### H. Additional Providers

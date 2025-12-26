@@ -19,3 +19,13 @@ pkg/
 
 # we use yarn, not npm
 package-lock.json
+
+# Rust / Cargo
+/target
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# basalt team-wide config (optional, can be committed if desired)
+# Metadata is stored in .git/basalt/ which is never committed
+.basalt.toml
