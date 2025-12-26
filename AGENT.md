@@ -113,6 +113,71 @@ basalt/
 
 ---
 
+## Documentation Guidelines
+
+### Code Documentation
+
+All documentation should live in the code itself, not in separate README files:
+
+- ✅ **DO** use module-level doc comments (`//!`) to document modules comprehensively
+- ✅ **DO** use doc comments (`///`) for public APIs (functions, structs, traits, etc.)
+- ✅ **DO** include usage examples in doc comments using `rust,ignore` code blocks
+- ✅ **DO** document design decisions and non-obvious behavior in comments
+- ❌ **DON'T** create separate README.md files in subdirectories
+- ❌ **DON'T** duplicate information between code docs and external files
+
+### Documentation Priority
+
+Information should be documented in this order of preference:
+
+1. **Module-level docs** (`//!` at top of `.rs` files) - Architecture, design principles, usage examples
+2. **Item-level docs** (`///` on functions, structs, etc.) - API documentation, parameters, return values
+3. **Inline comments** (`//`) - Implementation details, why not what
+4. **Top-level README.md** - Project overview, installation, quick start
+5. **AGENT.md** - AI assistant guidelines, architectural decisions, development practices
+
+**Exception**: Top-level `README.md` and `AGENT.md` are allowed for project-wide documentation.
+
+### Example
+
+```rust
+//! Stack detection and manipulation
+//!
+//! This module provides the core stack logic for detecting and manipulating
+//! linear branch stacks. All operations are provider-agnostic.
+//!
+//! # Stack Structure
+//!
+//! A stack is a linear sequence of branches where each branch has exactly
+//! one parent branch, forming a chain back to a base branch (usually `main`).
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! let stack = Stack::detect_from_branch("feature-part-3")?;
+//! for branch in stack.branches() {
+//!     println!("Branch: {}", branch.name);
+//! }
+//! ```
+
+/// Detect a stack starting from the given branch
+///
+/// Walks the Git history from `branch` back to the base branch,
+/// validating that the history is linear (no merge commits).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The branch doesn't exist
+/// - The history contains merge commits
+/// - The stack is empty (no commits between branch and base)
+pub fn detect_stack(branch: &str) -> Result<Stack> {
+    // Implementation here
+}
+```
+
+---
+
 ## Coding Conventions
 
 ### Rust Style

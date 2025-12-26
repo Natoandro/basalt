@@ -1,3 +1,6 @@
+mod error;
+mod providers;
+
 use clap::{Parser, Subcommand};
 use std::process;
 
