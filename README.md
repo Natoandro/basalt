@@ -122,10 +122,10 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 
 #### 3. Environment & Dependency Checks
 
-- [ ] Verify execution inside a Git repository
-- [ ] Verify required provider CLI is available
-- [ ] Verify provider authentication
-- [ ] Provide clear, actionable error messages
+- [x] Verify execution inside a Git repository
+- [x] Verify required provider CLI is available
+- [x] Verify provider authentication
+- [x] Provide clear, actionable error messages
 
 #### 4. Repository Initialization (`bt init`)
 

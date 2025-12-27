@@ -606,8 +606,18 @@ The following foundational work has been completed:
   - Mock provider for testing (fully functional)
   - Provider detection logic (from remote URLs and string parsing)
   - GitLab and GitHub provider stubs with CLI availability/auth checks
+- ✅ **Environment & Dependency Checks complete** (`src/core/environment.rs`):
+  - Git repository detection and validation
+  - Git CLI availability checks
+  - Provider CLI availability checks (delegates to provider trait)
+  - Provider authentication checks (delegates to provider trait)
+  - Basalt directory management (`.git/basalt/`)
+  - Initialization status checks
+  - Working directory state checks (uncommitted changes, rebase in progress)
+  - Comprehensive integration tests with temporary git repositories
+  - Clear, actionable error messages for all failure cases
 
-**Next steps**: Complete GitLab Provider Implementation (Section 2 of MVP tasks in README.md)
+**Next steps**: Complete Repository Initialization - `bt init` (Section 4 of MVP tasks in README.md)
 
 ---
 
@@ -656,4 +666,4 @@ The following foundational work has been completed:
 
 ---
 
-*Last updated: Provider Abstraction Layer complete (Section 1 of MVP)*
+*Last updated: Environment & Dependency Checks complete (Section 3 of MVP)*
