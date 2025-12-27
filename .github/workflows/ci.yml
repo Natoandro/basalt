@@ -132,3 +132,44 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+  docker-tests:
+    name: Docker Environment Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.test
+          push: false
+          load: true
+          tags: basalt-test:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run all tests in Docker
+        run: docker run --rm basalt-test:latest
+
+      - name: Test without git (should fail gracefully)
+        run: |
+          docker run --rm --entrypoint sh basalt-test:latest -c "
+            apt-get remove -y git > /dev/null 2>&1 || true
+            cargo test test_git_available 2>&1 | grep -q 'Git should be available' && echo 'PASS: Detects missing git' || exit 1
+          "
+
+      - name: Test in non-git directory
+        run: |
+          docker run --rm --entrypoint sh basalt-test:latest -c "
+            cd /tmp
+            cargo test test_not_in_git_repository -- --exact --nocapture
+          "
+
+      - name: Run verbose Docker tests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker run --rm --entrypoint sh basalt-test:latest -c "cargo test -- --nocapture"

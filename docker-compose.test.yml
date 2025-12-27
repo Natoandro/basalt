@@ -1,0 +1,164 @@
+# Docker Compose configuration for basalt testing
+#
+# Provides multiple services for testing different environment scenarios:
+# - test: Full environment with all dependencies (default)
+# - test-no-git: Test without git (to verify error handling)
+# - test-no-providers: Test with git but without provider CLIs
+# - test-verbose: Run tests with verbose output
+# - test-unit: Run only unit tests
+# - test-integration: Run only integration tests
+# - shell: Interactive shell for debugging
+
+version: "3.8"
+
+services:
+  # Default test service: Full environment
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test
+      cache_from:
+        - basalt-test:latest
+    image: basalt-test:latest
+    volumes:
+      # Cache cargo registry and git to speed up builds
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    environment:
+      - RUST_BACKTRACE=1
+      - CARGO_TERM_COLOR=always
+
+  # Test without git installed (verifies error handling)
+  test-no-git:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: no-git
+    volumes:
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    environment:
+      - RUST_BACKTRACE=1
+      - CARGO_TERM_COLOR=always
+    command: >
+      sh -c "
+        echo '==> Testing without git (should detect missing dependency)' &&
+        cargo test test_git_available -- --exact 2>&1 | tee /tmp/output.txt &&
+        echo '==> Verifying git check behavior' &&
+        cargo test --lib -- --nocapture
+      "
+
+  # Test with git but without provider CLIs
+  test-no-providers:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: no-providers
+    volumes:
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    environment:
+      - RUST_BACKTRACE=1
+      - CARGO_TERM_COLOR=always
+    command: >
+      sh -c "
+        echo '==> Testing without provider CLIs' &&
+        echo '==> Git should be available:' &&
+        git --version &&
+        echo '==> glab should NOT be available:' &&
+        ! command -v glab &&
+        echo '==> gh should NOT be available:' &&
+        ! command -v gh &&
+        echo '==> Running tests...' &&
+        cargo test --verbose
+      "
+
+  # Test with full environment and provider CLIs
+  test-with-providers:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: with-providers
+    volumes:
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    environment:
+      - RUST_BACKTRACE=1
+      - CARGO_TERM_COLOR=always
+    command: >
+      sh -c "
+        echo '==> Testing with provider CLIs' &&
+        echo '==> Git version:' &&
+        git --version &&
+        echo '==> glab version:' &&
+        glab version &&
+        echo '==> gh version:' &&
+        gh version &&
+        echo '==> Running tests...' &&
+        cargo fmt --check &&
+        cargo clippy --all-targets -- -D warnings &&
+        cargo test --verbose
+      "
+
+  # Verbose test output
+  test-verbose:
+    extends: test
+    command: >
+      sh -c "
+        cargo fmt --check &&
+        cargo clippy --all-targets -- -D warnings &&
+        cargo test -- --nocapture --test-threads=1
+      "
+
+  # Run only unit tests
+  test-unit:
+    extends: test
+    command: cargo test --lib --verbose
+
+  # Run only integration tests
+  test-integration:
+    extends: test
+    command: cargo test --test '*' --verbose
+
+  # Run specific test by name
+  test-specific:
+    extends: test
+    command: cargo test ${TEST_NAME:-test_git_available} -- --exact --nocapture
+
+  # Interactive shell for debugging
+  shell:
+    extends: test
+    entrypoint: /bin/bash
+    stdin_open: true
+    tty: true
+
+  # Interactive shell without git (for testing error scenarios)
+  shell-no-git:
+    extends: test-no-git
+    entrypoint: /bin/bash
+    stdin_open: true
+    tty: true
+    command: []
+
+  # Check code formatting and linting only (fast)
+  check:
+    extends: test
+    command: >
+      sh -c "
+        echo '==> Checking code formatting...' &&
+        cargo fmt --check &&
+        echo '==> Running clippy...' &&
+        cargo clippy --all-targets -- -D warnings
+      "
+
+  # Build only (no tests)
+  build:
+    extends: test
+    command: cargo build --all-targets --verbose
+
+volumes:
+  cargo-registry:
+    driver: local
+  cargo-git:
+    driver: local

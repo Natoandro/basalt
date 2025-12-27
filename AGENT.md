@@ -232,19 +232,72 @@ let url = String::from_utf8(output.stdout)?.trim().to_string();
 
 ## Testing Requirements
 
+### Testing Strategy
+
+basalt uses a **two-tier testing approach**:
+
+1. **Native Tests** (Fast) - Run with `cargo test` for quick iteration during development
+2. **Docker Tests** (Comprehensive) - Run with `./scripts/test-docker.sh` to test environment scenarios
+
+**When to use each:**
+
+| Scenario | Use Native Tests | Use Docker Tests |
+|----------|-----------------|------------------|
+| Daily development | ✅ Yes | ❌ No |
+| Quick iteration | ✅ Yes | ❌ No |
+| Before commit | ✅ Yes | ⚠️ Optional |
+| Before push | ✅ Yes | ✅ Yes |
+| Before PR | ✅ Yes | ✅ Yes (matrix) |
+| Debugging env issues | ❌ No | ✅ Yes |
+| Testing missing deps | ❌ No | ✅ Yes |
+
 ### Unit Tests
 
 - Test all core stack logic with mock providers
 - Test git operations with temporary repositories
 - Test metadata serialization/deserialization
 - Test error conditions explicitly
+- Run with `cargo test --lib`
 
 ### Integration Tests
 
 - Test full workflows with real git repositories
+- Use temporary git repos (via `tempfile` crate)
 - Mock provider CLI calls (don't require actual glab/gh)
 - Test migration scenarios (Charcoal → basalt)
 - Test cross-platform behavior
+- Run with `cargo test --test '*'`
+
+### Docker Environment Tests
+
+Docker tests verify basalt behavior in different environment configurations:
+
+**Scenarios:**
+1. **Full environment** (`test`) - All dependencies installed (default)
+2. **No git** (`test-no-git`) - Verifies error handling when git is missing
+3. **No providers** (`test-no-providers`) - Tests without glab/gh CLIs
+4. **With providers** (`test-with-providers`) - Tests with glab + gh installed
+
+**Run Docker tests:**
+
+```bash
+# Quick commands
+./scripts/test-docker.sh all              # Full environment (default)
+./scripts/test-docker.sh no-git           # Test missing git scenario
+./scripts/test-docker.sh no-providers     # Test without glab/gh
+./scripts/test-docker.sh matrix           # Run all scenarios
+
+# Using cargo-make
+cargo make test-docker                    # Full environment
+cargo make test-docker-matrix             # All scenarios
+cargo make test-docker-shell              # Interactive debugging
+```
+
+**Why Docker tests matter:**
+- Verify graceful degradation when dependencies are missing
+- Ensure error messages are helpful and actionable
+- Test in clean, reproducible environments
+- Catch environment-specific issues before CI
 
 ### Test Organization
 
@@ -267,6 +320,16 @@ mod tests {
     }
 }
 ```
+
+### CI Testing
+
+GitHub Actions CI runs:
+- **Native tests** on every push (Linux, macOS, Windows) - Fast feedback
+- **Docker tests** on PRs and main branch - Comprehensive validation
+- **Clippy** and **rustfmt** checks on all platforms
+- **Code coverage** reporting (tarpaulin)
+
+See `.github/workflows/ci.yml` for the full configuration.
 
 ---
 
@@ -666,4 +729,4 @@ The following foundational work has been completed:
 
 ---
 
-*Last updated: Environment & Dependency Checks complete (Section 3 of MVP)*
+*Last updated: Environment & Dependency Checks complete + Docker testing infrastructure (Section 3 of MVP)*

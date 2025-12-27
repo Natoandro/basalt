@@ -361,6 +361,96 @@ bt status
 
 ---
 
+## Development
+
+### Setup
+
+**Install cargo-make** (recommended for development):
+
+```bash
+cargo install cargo-make
+```
+
+This provides convenient tasks for testing, formatting, linting, and more:
+
+```bash
+cargo make          # Show all available tasks
+cargo make ci       # Run all CI checks
+cargo make test     # Run all tests
+```
+
+### Running Tests
+
+#### Local Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run with verbose output
+cargo test -- --nocapture
+
+# Run specific test
+cargo test test_name
+
+# Run only unit tests
+cargo test --lib
+
+# Run only integration tests
+cargo test --test '*'
+
+# Run formatting and linting
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+```
+
+#### Docker Testing (Environment Scenarios)
+
+basalt uses Docker to test different environment configurations, especially for verifying error handling when dependencies are missing:
+
+```bash
+# Test all scenarios
+./scripts/test-docker.sh matrix          # Run full test matrix
+cargo make test-docker-matrix
+
+# Specific scenarios
+./scripts/test-docker.sh all             # Full environment (default)
+./scripts/test-docker.sh no-git          # Without git (error handling)
+./scripts/test-docker.sh no-providers    # Without glab/gh
+./scripts/test-docker.sh with-providers  # With glab + gh
+
+# Development
+./scripts/test-docker.sh shell           # Interactive debugging
+./scripts/test-docker.sh verbose         # Detailed output
+./scripts/test-docker.sh clean           # Cleanup
+```
+
+**Using cargo-make** (recommended):
+
+```bash
+cargo make test-docker                   # Full environment
+cargo make test-docker-no-git            # Test missing git
+cargo make test-docker-no-providers      # Test missing CLIs
+cargo make test-docker-matrix            # All scenarios
+```
+
+**Why Docker?**
+- ✅ **Test dependency handling** — Verify behavior when git/glab/gh are missing
+- ✅ **Environment isolation** — Clean, reproducible test environments
+- ✅ **CI parity** — Match what runs in GitHub Actions
+- ✅ **Cross-platform** — Test Linux behavior regardless of dev OS
+
+**When to use:**
+- Before submitting PRs (run `cargo make test-docker-matrix`)
+- When debugging environment-specific issues
+- To verify error messages for missing dependencies
+
+**For daily development**, native `cargo test` is faster. Docker tests are for comprehensive validation.
+
+See [docs/DOCKER_TESTING.md](./docs/DOCKER_TESTING.md) for detailed documentation.
+
+---
+
 ## Contributing
 
 Interested in contributing? Here's how you can help:

@@ -1,0 +1,322 @@
+# Makefile.toml for cargo-make
+#
+# Install cargo-make:
+#   cargo install --force cargo-make
+#
+# Usage:
+#   cargo make              # Show available tasks
+#   cargo make test         # Run all tests
+#   cargo make ci           # Run all CI checks
+#   cargo make test-docker  # Run tests in Docker
+
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+# ============================================================================
+# Help / Documentation
+# ============================================================================
+
+[tasks.default]
+description = "Show available tasks"
+script = '''
+echo "Basalt Development Tasks (cargo-make)"
+echo ""
+echo "Local Development:"
+echo "  cargo make test              - Run all tests"
+echo "  cargo make test-verbose      - Run tests with verbose output"
+echo "  cargo make test-unit         - Run only unit tests"
+echo "  cargo make test-integration  - Run only integration tests"
+echo "  cargo make fmt               - Format code"
+echo "  cargo make fmt-check         - Check code formatting"
+echo "  cargo make clippy            - Run clippy linter"
+echo "  cargo make check             - Check compilation"
+echo "  cargo make build             - Build debug binary"
+echo "  cargo make build-release     - Build release binary"
+echo "  cargo make clean             - Clean build artifacts"
+echo "  cargo make ci                - Run all CI checks (fmt, clippy, test)"
+echo ""
+echo "Docker Testing:"
+echo "  cargo make test-docker         - Run all tests in Docker"
+echo "  cargo make test-docker-verbose - Run tests with verbose output"
+echo "  cargo make test-docker-build   - Rebuild and run tests"
+echo "  cargo make test-docker-shell   - Open shell in Docker"
+echo "  cargo make test-docker-clean   - Clean up Docker resources"
+echo ""
+echo "See Makefile.toml for all available tasks"
+'''
+
+# ============================================================================
+# Local Testing
+# ============================================================================
+
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["test", "--all-targets"]
+
+[tasks.test-verbose]
+description = "Run tests with verbose output"
+command = "cargo"
+args = ["test", "--all-targets", "--", "--nocapture"]
+
+[tasks.test-unit]
+description = "Run only unit tests"
+command = "cargo"
+args = ["test", "--bin", "bt"]
+
+[tasks.test-integration]
+description = "Run only integration tests"
+command = "cargo"
+args = ["test", "--test", "*"]
+
+# ============================================================================
+# Code Quality
+# ============================================================================
+
+[tasks.fmt]
+description = "Format code with rustfmt"
+command = "cargo"
+args = ["fmt"]
+
+[tasks.fmt-check]
+description = "Check code formatting"
+command = "cargo"
+args = ["fmt", "--check"]
+
+[tasks.clippy]
+description = "Run clippy linter"
+command = "cargo"
+args = ["clippy", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.check]
+description = "Check code compilation"
+command = "cargo"
+args = ["check", "--all-targets"]
+
+# ============================================================================
+# Building
+# ============================================================================
+
+[tasks.build]
+description = "Build debug binary"
+command = "cargo"
+args = ["build"]
+
+[tasks.build-release]
+description = "Build release binary"
+command = "cargo"
+args = ["build", "--release"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+# ============================================================================
+# CI/CD
+# ============================================================================
+
+[tasks.ci]
+description = "Run all CI checks (format, lint, test)"
+dependencies = ["fmt-check", "clippy", "test"]
+script = '''
+echo ""
+echo "✅ All CI checks passed!"
+'''
+
+[tasks.pre-commit]
+description = "Run checks before committing"
+dependencies = ["fmt", "clippy", "test"]
+script = '''
+echo ""
+echo "✅ Ready to commit!"
+'''
+
+# ============================================================================
+# Docker Testing
+# ============================================================================
+
+[tasks.test-docker]
+description = "Run all tests in Docker (full environment)"
+script = "./scripts/test-docker.sh all"
+
+[tasks.test-docker-verbose]
+description = "Run tests in Docker with verbose output"
+script = "./scripts/test-docker.sh verbose"
+
+[tasks.test-docker-unit]
+description = "Run only unit tests in Docker"
+script = "./scripts/test-docker.sh unit"
+
+[tasks.test-docker-integration]
+description = "Run only integration tests in Docker"
+script = "./scripts/test-docker.sh integration"
+
+[tasks.test-docker-no-git]
+description = "Test without git (verifies error handling)"
+script = "./scripts/test-docker.sh no-git"
+
+[tasks.test-docker-no-providers]
+description = "Test without provider CLIs (glab/gh)"
+script = "./scripts/test-docker.sh no-providers"
+
+[tasks.test-docker-with-providers]
+description = "Test with provider CLIs (glab + gh)"
+script = "./scripts/test-docker.sh with-providers"
+
+[tasks.test-docker-matrix]
+description = "Run tests in all environment configurations"
+script = "./scripts/test-docker.sh matrix"
+
+[tasks.test-docker-build]
+description = "Build Docker test image"
+script = "./scripts/test-docker.sh build"
+
+[tasks.test-docker-shell]
+description = "Open interactive shell in Docker container"
+script = "./scripts/test-docker.sh shell"
+
+[tasks.test-docker-clean]
+description = "Clean up Docker images and volumes"
+script = "./scripts/test-docker.sh clean"
+
+[tasks.test-docker-shell]
+description = "Open interactive shell in Docker container"
+script = "./scripts/test-docker.sh --shell"
+
+[tasks.test-docker-clean]
+description = "Clean up Docker resources"
+script = "./scripts/test-docker.sh --clean"
+
+[tasks.docker-build]
+description = "Build Docker test image"
+script = "docker build -f Dockerfile.test -t basalt-test ."
+
+[tasks.docker-run]
+description = "Run tests using Docker directly"
+script = "docker run --rm basalt-test"
+
+# ============================================================================
+# Development Utilities
+# ============================================================================
+
+[tasks.watch]
+description = "Watch for changes and run tests"
+install_crate = "cargo-watch"
+command = "cargo"
+args = ["watch", "-x", "test"]
+
+[tasks.watch-check]
+description = "Watch for changes and run check"
+install_crate = "cargo-watch"
+command = "cargo"
+args = ["watch", "-x", "check"]
+
+[tasks.coverage]
+description = "Generate code coverage report"
+install_crate = "cargo-tarpaulin"
+command = "cargo"
+args = ["tarpaulin", "--out", "Html", "--output-dir", "coverage"]
+
+[tasks.doc]
+description = "Generate and open documentation"
+command = "cargo"
+args = ["doc", "--open", "--no-deps"]
+
+[tasks.doc-all]
+description = "Generate documentation including dependencies"
+command = "cargo"
+args = ["doc", "--open"]
+
+# ============================================================================
+# Installation & Setup
+# ============================================================================
+
+[tasks.install]
+description = "Install the binary"
+command = "cargo"
+args = ["install", "--path", "."]
+
+[tasks.install-dev-tools]
+description = "Install development tools"
+script = '''
+echo "Installing development tools..."
+cargo install cargo-watch
+cargo install cargo-tarpaulin
+cargo install cargo-audit
+echo "✅ Development tools installed"
+'''
+
+[tasks.setup]
+description = "Set up development environment"
+dependencies = ["install-dev-tools"]
+script = '''
+echo ""
+echo "✅ Development environment ready!"
+echo ""
+echo "Run 'cargo make' to see available tasks"
+'''
+
+# ============================================================================
+# Security & Maintenance
+# ============================================================================
+
+[tasks.audit]
+description = "Audit dependencies for security vulnerabilities"
+install_crate = "cargo-audit"
+command = "cargo"
+args = ["audit"]
+
+[tasks.update]
+description = "Update dependencies"
+command = "cargo"
+args = ["update"]
+
+[tasks.outdated]
+description = "Check for outdated dependencies"
+install_crate = "cargo-outdated"
+command = "cargo"
+args = ["outdated"]
+
+# ============================================================================
+# Platform-specific Tasks
+# ============================================================================
+
+[tasks.verify-env]
+description = "Verify development environment"
+script = '''
+echo "Checking development environment..."
+echo ""
+
+# Check git
+if command -v git >/dev/null 2>&1; then
+    echo "✅ git: $(git --version)"
+else
+    echo "❌ git: not found"
+fi
+
+# Check cargo
+if command -v cargo >/dev/null 2>&1; then
+    echo "✅ cargo: $(cargo --version)"
+else
+    echo "❌ cargo: not found"
+fi
+
+# Check rustc
+if command -v rustc >/dev/null 2>&1; then
+    echo "✅ rustc: $(rustc --version)"
+else
+    echo "❌ rustc: not found"
+fi
+
+# Check docker
+if command -v docker >/dev/null 2>&1; then
+    echo "✅ docker: $(docker --version)"
+else
+    echo "⚠️  docker: not found (optional)"
+fi
+
+echo ""
+echo "Environment check complete"
+'''

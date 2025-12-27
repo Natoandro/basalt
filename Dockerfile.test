@@ -1,0 +1,96 @@
+# Multi-stage Dockerfile for testing basalt in various environments
+#
+# This Dockerfile supports testing scenarios:
+# - Full environment (git + all dependencies)
+# - Missing dependencies (to test error handling)
+# - Different git versions
+#
+# Build stages:
+# - base: Minimal Rust environment
+# - with-git: Base + git
+# - with-providers: Full environment with glab/gh
+# - test: Default test stage with all dependencies
+
+# Base stage: Rust only (no git)
+FROM rust:1.85-bookworm AS base
+
+WORKDIR /app
+
+# Install basic build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY tests ./tests
+
+# Stage with git installed
+FROM base AS with-git
+
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure git for tests
+RUN git config --global user.name "Basalt Test" && \
+    git config --global user.email "test@basalt.dev" && \
+    git config --global init.defaultBranch main
+
+# Stage with provider CLIs (GitLab, GitHub)
+FROM with-git AS with-providers
+
+# Install glab (GitLab CLI)
+RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/v1.42.0/downloads/glab_1.42.0_Linux_x86_64.tar.gz | \
+    tar -xz -C /usr/local/bin glab && \
+    chmod +x /usr/local/bin/glab
+
+# Install gh (GitHub CLI)
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+    dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | \
+    tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/*
+
+# Verify provider CLIs are installed
+RUN glab version && gh version
+
+# Default test stage: Full environment
+FROM with-git AS test
+
+# Install rustfmt and clippy for code quality checks
+RUN rustup component add rustfmt clippy
+
+# Build dependencies (cache layer)
+RUN cargo fetch
+
+# Build the project
+RUN cargo build --tests
+
+# Default command: run all checks and tests
+CMD set -ex && \
+    echo "==> Running cargo fmt check..." && \
+    cargo fmt --check && \
+    echo "==> Running clippy..." && \
+    cargo clippy --all-targets -- -D warnings && \
+    echo "==> Running tests..." && \
+    cargo test --verbose
+
+# Stage for testing without git (to verify error handling)
+FROM base AS no-git
+
+RUN rustup component add rustfmt clippy
+RUN cargo fetch
+RUN cargo build --tests
+
+# Stage for testing with git but no provider CLIs
+FROM with-git AS no-providers
+
+RUN rustup component add rustfmt clippy
+RUN cargo fetch
+RUN cargo build --tests
