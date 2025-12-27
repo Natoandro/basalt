@@ -107,11 +107,11 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 
 #### 1. Provider Abstraction Layer
 
-- [ ] Define `Provider` trait
-- [ ] Define review metadata structures
-- [ ] Define authentication interface
-- [ ] Create mock provider for testing
-- [ ] Implement provider detection logic
+- [x] Define `Provider` trait
+- [x] Define review metadata structures
+- [x] Define authentication interface
+- [x] Create mock provider for testing
+- [x] Implement provider detection logic
 
 #### 2. GitLab Provider Implementation
 

@@ -589,7 +589,7 @@ The following foundational work has been completed:
 - ✅ Rust project initialized with `cargo init --name bt`
 - ✅ CLI framework configured using `clap` with derive macros
 - ✅ Basic command structure implemented (init, submit, restack, status)
-- ✅ Dependencies added: clap, anyhow, thiserror, serde, serde_json, toml
+- ✅ Dependencies added: clap, anyhow, thiserror, serde, serde_json, toml, serde_yaml
 - ✅ GitHub Actions CI workflow configured for:
   - Multi-platform testing (Linux, macOS, Windows)
   - Code formatting checks (rustfmt)
@@ -597,10 +597,17 @@ The following foundational work has been completed:
   - Code coverage (tarpaulin)
   - Release binary builds
 - ✅ .gitignore updated for Rust artifacts
-- ✅ Basic error handling structure in place
+- ✅ Basic error handling structure in place (`src/error.rs`)
 - ✅ Metadata location decided: `.git/basalt/` (never committed, clean workspace)
+- ✅ **Provider Abstraction Layer complete** (`src/providers/`):
+  - Provider trait with default methods for CLI helpers
+  - Review metadata structures (Review, ReviewState, CreateReviewParams, UpdateReviewParams)
+  - Authentication interface
+  - Mock provider for testing (fully functional)
+  - Provider detection logic (from remote URLs and string parsing)
+  - GitLab and GitHub provider stubs with CLI availability/auth checks
 
-**Next steps**: Begin implementing the Provider Abstraction Layer (Section 1 of MVP tasks in README.md)
+**Next steps**: Complete GitLab Provider Implementation (Section 2 of MVP tasks in README.md)
 
 ---
 
@@ -649,4 +656,4 @@ The following foundational work has been completed:
 
 ---
 
-*Last updated: Planning phase*
+*Last updated: Provider Abstraction Layer complete (Section 1 of MVP)*
