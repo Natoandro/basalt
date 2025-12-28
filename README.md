@@ -365,6 +365,8 @@ bt status
 
 ### Setup
 
+#### Initial Setup
+
 **Install cargo-make** (recommended for development):
 
 ```bash
@@ -378,6 +380,20 @@ cargo make          # Show all available tasks
 cargo make ci       # Run all CI checks
 cargo make test     # Run all tests
 ```
+
+#### Git Hooks
+
+Install pre-commit hooks to catch formatting and linting issues before committing:
+
+```bash
+# Lightweight (recommended) - runs fmt + clippy
+cargo make install-hooks-light
+
+# Full version - also runs tests (slower)
+cargo make install-hooks
+```
+
+Hooks run automatically on `git commit`. Use `git commit --no-verify` to bypass if needed.
 
 ### Running Tests
 

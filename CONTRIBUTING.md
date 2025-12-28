@@ -61,6 +61,9 @@ cargo build
 
 # Run tests to verify setup
 cargo test
+
+# Install pre-commit hooks (recommended)
+cargo make install-hooks-light
 ```
 
 ### Install Development Tools (Optional)
@@ -137,6 +140,8 @@ See [docs/DOCKER_TESTING.md](./docs/DOCKER_TESTING.md) for detailed Docker testi
 
 ## Code Quality
 
+All code contributions must pass formatting, linting, and tests.
+
 ### Formatting
 
 ```bash
@@ -148,7 +153,6 @@ cargo fmt --check
 
 # Using cargo-make
 cargo make fmt
-cargo make fmt-check
 ```
 
 ### Linting

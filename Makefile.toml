@@ -36,6 +36,12 @@ echo "  cargo make build-release     - Build release binary"
 echo "  cargo make clean             - Clean build artifacts"
 echo "  cargo make ci                - Run all CI checks (fmt, clippy, test)"
 echo ""
+echo "Git Hooks:"
+echo "  cargo make install-hooks       - Install git pre-commit hooks (full)"
+echo "  cargo make install-hooks-light - Install lightweight hooks (no tests)"
+echo "  cargo make uninstall-hooks     - Remove git pre-commit hooks"
+echo "  cargo make test-hooks          - Test pre-commit hooks manually"
+echo ""
 echo "Docker Testing:"
 echo "  cargo make test-docker         - Run all tests in Docker"
 echo "  cargo make test-docker-verbose - Run tests with verbose output"
@@ -134,6 +140,62 @@ echo "✅ Ready to commit!"
 '''
 
 # ============================================================================
+# Git Hooks
+# ============================================================================
+
+[tasks.install-hooks]
+description = "Install git pre-commit hooks (full: fmt + clippy + tests)"
+script = '''
+if [ ! -f "./scripts/install-hooks.sh" ]; then
+    echo "Error: scripts/install-hooks.sh not found"
+    exit 1
+fi
+chmod +x ./scripts/install-hooks.sh
+./scripts/install-hooks.sh --full
+'''
+
+[tasks.install-hooks-light]
+description = "Install lightweight git pre-commit hooks (fmt + clippy only, no tests)"
+script = '''
+if [ ! -f "./scripts/install-hooks.sh" ]; then
+    echo "Error: scripts/install-hooks.sh not found"
+    exit 1
+fi
+chmod +x ./scripts/install-hooks.sh
+./scripts/install-hooks.sh --light
+'''
+
+[tasks.uninstall-hooks]
+description = "Uninstall git pre-commit hooks"
+script = '''
+if [ -f ".git/hooks/pre-commit" ]; then
+    if grep -q "Pre-commit hook for basalt" ".git/hooks/pre-commit" 2>/dev/null; then
+        rm -f .git/hooks/pre-commit
+        echo "✓ Pre-commit hook uninstalled"
+    else
+        echo "Warning: Pre-commit hook exists but is not the basalt hook"
+        echo "Not removing (might be custom hook)"
+        exit 1
+    fi
+else
+    echo "No pre-commit hook installed"
+fi
+'''
+
+[tasks.test-hooks]
+description = "Test pre-commit hooks manually"
+script = '''
+if [ ! -f ".git/hooks/pre-commit" ]; then
+    echo "Error: Pre-commit hook not installed"
+    echo "Run: cargo make install-hooks"
+    exit 1
+fi
+echo "Testing pre-commit hook..."
+echo ""
+.git/hooks/pre-commit
+'''
+
+# ============================================================================
 # Docker Testing
 # ============================================================================
 
@@ -180,14 +242,6 @@ script = "./scripts/test-docker.sh shell"
 [tasks.test-docker-clean]
 description = "Clean up Docker images and volumes"
 script = "./scripts/test-docker.sh clean"
-
-[tasks.test-docker-shell]
-description = "Open interactive shell in Docker container"
-script = "./scripts/test-docker.sh --shell"
-
-[tasks.test-docker-clean]
-description = "Clean up Docker resources"
-script = "./scripts/test-docker.sh --clean"
 
 [tasks.docker-build]
 description = "Build Docker test image"
@@ -250,7 +304,7 @@ echo "✅ Development tools installed"
 
 [tasks.setup]
 description = "Set up development environment"
-dependencies = ["install-dev-tools"]
+dependencies = ["install-dev-tools", "install-hooks"]
 script = '''
 echo ""
 echo "✅ Development environment ready!"

@@ -1,0 +1,126 @@
+#!/bin/sh
+#
+# Pre-commit hook for basalt
+#
+# This hook runs formatting and linting checks before allowing a commit.
+# It ensures code quality and consistency across the codebase.
+#
+# To install this hook, run: ./scripts/install-hooks.sh
+# To bypass this hook temporarily, use: git commit --no-verify
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Check if we should use colors (respect NO_COLOR environment variable)
+if [ -n "$NO_COLOR" ] || [ ! -t 1 ]; then
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+fi
+
+echo "${BLUE}Running pre-commit checks...${NC}"
+echo ""
+
+# Track if any checks fail
+FAILED=0
+
+# ============================================================================
+# 1. Check for Cargo.toml (ensure we're in a Rust project)
+# ============================================================================
+
+if [ ! -f "Cargo.toml" ]; then
+    echo "${RED}✗ Error: Not in a Rust project root (Cargo.toml not found)${NC}"
+    exit 1
+fi
+
+# ============================================================================
+# 2. Format Check (cargo fmt)
+# ============================================================================
+
+echo "${BLUE}[1/3] Checking code formatting...${NC}"
+
+if ! cargo fmt --check --quiet 2>&1; then
+    echo "${RED}✗ Code formatting check failed${NC}"
+    echo ""
+    echo "${YELLOW}Run the following command to fix formatting:${NC}"
+    echo "  cargo fmt"
+    echo ""
+    echo "Or run: cargo make fmt"
+    echo ""
+    FAILED=1
+else
+    echo "${GREEN}✓ Code formatting is correct${NC}"
+fi
+
+echo ""
+
+# ============================================================================
+# 3. Clippy Linting (cargo clippy)
+# ============================================================================
+
+echo "${BLUE}[2/3] Running clippy linter...${NC}"
+
+if ! cargo clippy --all-targets --quiet -- -D warnings 2>&1; then
+    echo "${RED}✗ Clippy linting failed${NC}"
+    echo ""
+    echo "${YELLOW}Fix the issues above or run:${NC}"
+    echo "  cargo clippy --all-targets -- -D warnings"
+    echo ""
+    echo "Or run: cargo make clippy"
+    echo ""
+    FAILED=1
+else
+    echo "${GREEN}✓ Clippy checks passed${NC}"
+fi
+
+echo ""
+
+# ============================================================================
+# 4. Test (cargo test)
+# ============================================================================
+
+echo "${BLUE}[3/3] Running tests...${NC}"
+
+if ! cargo test --all-targets --quiet 2>&1; then
+    echo "${RED}✗ Tests failed${NC}"
+    echo ""
+    echo "${YELLOW}Fix the failing tests or run:${NC}"
+    echo "  cargo test"
+    echo ""
+    echo "Or run: cargo make test"
+    echo ""
+    FAILED=1
+else
+    echo "${GREEN}✓ All tests passed${NC}"
+fi
+
+echo ""
+
+# ============================================================================
+# Final Result
+# ============================================================================
+
+if [ $FAILED -eq 1 ]; then
+    echo "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo "${RED}✗ Pre-commit checks failed${NC}"
+    echo "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "${YELLOW}To bypass this hook (not recommended), use:${NC}"
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
+else
+    echo "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo "${GREEN}✓ All pre-commit checks passed!${NC}"
+    echo "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    exit 0
+fi
