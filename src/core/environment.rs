@@ -18,9 +18,6 @@
 //! // Check we're in a git repository
 //! environment::require_git_repository()?;
 //!
-//! // Check git is installed
-//! environment::check_git_available()?;
-//!
 //! // Check provider prerequisites
 //! let provider = create_provider(ProviderType::GitLab);
 //! environment::check_provider_prerequisites(&*provider)?;
@@ -28,53 +25,20 @@
 
 #![allow(dead_code)] // Allow during early development
 
+use crate::core::git;
 use crate::error::{Error, Result};
 use crate::providers::Provider;
 use std::path::PathBuf;
-use std::process::Command;
-
-/// Check if git is installed and available
-///
-/// This is a fundamental requirement for basalt to function.
-///
-/// # Errors
-///
-/// Returns an error if git is not found in PATH
-pub fn check_git_available() -> Result<()> {
-    Command::new("git")
-        .arg("--version")
-        .output()
-        .map_err(|_| Error::other("Git is not installed or not in PATH.\n\nInstall git from: https://git-scm.com/downloads"))?;
-
-    Ok(())
-}
 
 /// Check if we are inside a Git repository
 ///
-/// Searches for a `.git` directory in the current directory or any parent directory.
+/// Uses gitoxide to check for a git repository.
 ///
 /// # Errors
 ///
 /// Returns `Error::NotInGitRepository` if not inside a git repository
 pub fn require_git_repository() -> Result<PathBuf> {
-    // Use git to find the repository root
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map_err(|_| Error::NotInGitRepository)?;
-
-    if !output.status.success() {
-        return Err(Error::NotInGitRepository);
-    }
-
-    let repo_root = String::from_utf8_lossy(&output.stdout);
-    let repo_root = repo_root.trim();
-
-    if repo_root.is_empty() {
-        return Err(Error::NotInGitRepository);
-    }
-
-    Ok(PathBuf::from(repo_root))
+    git::get_repo_root()
 }
 
 /// Get the path to the .git directory
@@ -85,23 +49,7 @@ pub fn require_git_repository() -> Result<PathBuf> {
 ///
 /// Returns an error if not in a git repository
 pub fn get_git_dir() -> Result<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--git-dir"])
-        .output()
-        .map_err(|_| Error::NotInGitRepository)?;
-
-    if !output.status.success() {
-        return Err(Error::NotInGitRepository);
-    }
-
-    let git_dir = String::from_utf8_lossy(&output.stdout);
-    let git_dir = git_dir.trim();
-
-    if git_dir.is_empty() {
-        return Err(Error::NotInGitRepository);
-    }
-
-    Ok(PathBuf::from(git_dir))
+    git::get_git_dir()
 }
 
 /// Get the basalt metadata directory path (inside .git/)
@@ -169,18 +117,9 @@ pub fn require_initialized() -> Result<()> {
 ///
 /// # Errors
 ///
-/// Returns an error if git command fails
+/// Returns an error if git operation fails
 pub fn has_uncommitted_changes() -> Result<bool> {
-    let output = Command::new("git")
-        .args(["status", "--porcelain"])
-        .output()?;
-
-    if !output.status.success() {
-        return Err(Error::git("Failed to check git status"));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(!stdout.trim().is_empty())
+    git::has_uncommitted_changes()
 }
 
 /// Require that there are no uncommitted changes
@@ -198,13 +137,7 @@ pub fn require_clean_working_directory() -> Result<()> {
 }
 
 pub fn is_rebase_in_progress() -> Result<bool> {
-    let git_dir = get_git_dir()?;
-
-    // Check for various rebase state directories
-    let rebase_merge = git_dir.join("rebase-merge");
-    let rebase_apply = git_dir.join("rebase-apply");
-
-    Ok(rebase_merge.exists() || rebase_apply.exists())
+    git::is_rebase_in_progress()
 }
 
 pub fn require_no_rebase_in_progress() -> Result<()> {
@@ -256,7 +189,6 @@ pub fn check_provider_prerequisites(provider: &dyn Provider) -> Result<()> {
 ///
 /// Returns the first error encountered during checks
 pub fn check_basic_environment() -> Result<()> {
-    check_git_available()?;
     require_git_repository()?;
     require_initialized()?;
     Ok(())
@@ -282,12 +214,16 @@ pub fn check_stack_operation_environment() -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_check_git_available() {
-        // This test assumes git is installed (required for development)
-        assert!(check_git_available().is_ok());
-    }
-
-    // Note: Other tests require being in a git repository
+    // Note: Tests require being in a git repository
     // Integration tests should set up temporary git repositories for testing
+
+    #[test]
+    fn test_require_git_repository() {
+        // This test assumes we're running from within a git repo
+        // Will fail if run outside a git repo, which is expected
+        let result = require_git_repository();
+        if std::path::Path::new(".git").exists() || std::env::var("CI").is_ok() {
+            assert!(result.is_ok(), "Should find git repository");
+        }
+    }
 }

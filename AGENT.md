@@ -209,10 +209,24 @@ return Err(Error::Generic("Something went wrong".to_string()));
 
 ### Git Operations
 
-- Always use `git` CLI, never libgit2 (for now)
-- Wrap all git calls in the `core::git` module
-- Parse output carefully, handle errors explicitly
-- Never assume git command success
+**Architecture**: basalt uses **gitoxide** (`gix` crate) for all git operations.
+
+**Why gitoxide?**
+- ✅ Pure Rust - better performance, type safety, single binary
+- ✅ No subprocess overhead
+- ✅ Better error handling with Rust Result types
+- ✅ More control over git operations
+- ✅ Actively maintained and production-ready (used by cargo, GitLab)
+
+**Exception**: A few operations use git CLI when it's genuinely simpler:
+- `git status --porcelain` for uncommitted changes check (cleaner than low-level API)
+- Complex interactive operations if/when needed in the future
+
+**Guidelines**:
+- Wrap all git operations in the `core::git` module
+- Use gitoxide (`gix`) for: reading refs, examining history, reading config, branch operations
+- Handle errors explicitly with proper context
+- Provide clear error messages that help users fix issues
 
 ### Provider CLI Calls
 
@@ -516,7 +530,7 @@ fn detect_provider(repo: &Repository) -> Result<ProviderType> {
 
 ### ❌ Don't Do This
 
-1. **Don't use libgit2 directly** — Use git CLI for consistency
+1. **Don't spawn git CLI unnecessarily** — Use gitoxide (`gix`) for git operations
 2. **Don't hardcode GitHub/GitLab in core** — Use provider abstraction
 3. **Don't assume linear history** — Validate and error clearly
 4. **Don't force-push without confirmation** — Ask or require --force flag
@@ -570,9 +584,10 @@ Closes #123
 ### Why Rust?
 
 - Performance for large repos
-- Single binary distribution
+- Single binary distribution (including git operations via gitoxide)
 - Strong type safety for complex stack logic
 - Great CLI ecosystem (clap, etc.)
+- Native git integration with gitoxide (no subprocess overhead)
 
 ### Why CLI delegation vs direct API?
 
@@ -581,10 +596,18 @@ Closes #123
 - Less code to maintain
 - Leverages community tools
 
+### Why gitoxide?
+
+- **Performance**: No subprocess overhead
+- **Type safety**: Rust types for git objects, refs, commits, etc.
+- **Single binary**: No external git dependency
+- **Better errors**: Structured error types instead of parsing stderr
+- **Production ready**: Used by major projects (cargo, GitLab)
+
 ### Why local-first?
 
 - Works offline for read operations
-- Fast, no network latency
+- Fast, no network latency (even faster with gitoxide)
 - Git is already local
 - Users own their data
 
@@ -680,7 +703,7 @@ The following foundational work has been completed:
   - Comprehensive integration tests with temporary git repositories
   - Clear, actionable error messages for all failure cases
 
-**Next steps**: Complete Repository Initialization - `bt init` (Section 4 of MVP tasks in README.md)
+**Next steps**: Complete Stack Detection & Validation (Section 5 of MVP tasks in README.md)
 
 ---
 
@@ -729,4 +752,48 @@ The following foundational work has been completed:
 
 ---
 
-*Last updated: Environment & Dependency Checks complete + Docker testing infrastructure (Section 3 of MVP)*
+*Last updated: Repository Initialization (`bt init`) complete (Section 4 of MVP)*
+
+---
+
+## Recently Completed Work
+
+### Repository Initialization (`bt init`) - Section 4
+
+The `bt init` command is now fully implemented and tested:
+
+- ✅ **Git operations module** (`src/core/git.rs`):
+  - Current branch detection
+  - Remote URL retrieval
+  - Default branch detection (multiple strategies)
+  - Branch existence checks
+  - Upstream tracking queries
+  
+- ✅ **Metadata management** (`src/core/metadata.rs`):
+  - YAML-based metadata format (`.git/basalt/metadata.yml`)
+  - Version validation and migration support
+  - Branch metadata tracking (review IDs, parent branches, timestamps)
+  - Full serialization/deserialization support
+  
+- ✅ **Init command** (`src/cli/init.rs`):
+  - Auto-detection of provider from git remote URL
+  - Support for SSH and HTTPS remote formats
+  - Auto-detection of default base branch
+  - Provider override via `--provider` flag
+  - Base branch override via `--base-branch` flag
+  - Checks for already-initialized repositories
+  - Clear error messages for all failure cases
+  
+- ✅ **Comprehensive testing**:
+  - Unit tests for all new modules
+  - 11 integration tests covering all init scenarios
+  - Tests for error conditions (no remote, invalid provider, etc.)
+  - All 47 tests passing
+
+**Dependencies added**: 
+- `chrono` for timestamp handling in metadata
+- `gix` (gitoxide) for native Rust git operations
+
+**Architectural decision**: Using gitoxide (`gix`) for all git operations provides better performance, type safety, and eliminates subprocess overhead while maintaining a single binary distribution.
+
+---

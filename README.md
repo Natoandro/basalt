@@ -83,9 +83,9 @@ basalt stores its metadata in **`.git/basalt/metadata.yml`** (inside the `.git/`
 
 Team-wide configuration can optionally be stored in `.basalt.toml` in the repository root (this can be committed).
 
-### Hard Dependencies
+### Dependencies
 
-- `git` (always required)
+- **No external git dependency** — Uses gitoxide (pure Rust git implementation)
 - Provider-specific CLI:
   - `glab` for GitLab
   - `gh` for GitHub
@@ -129,11 +129,11 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 
 #### 4. Repository Initialization (`bt init`)
 
-- [ ] Create config directory (`.git/basalt/`)
-- [ ] Auto-detect Git provider from remote
-- [ ] Detect and store default base branch
-- [ ] Persist minimal config (TOML or JSON)
-- [ ] Support provider override flag
+- [x] Create config directory (`.git/basalt/`)
+- [x] Auto-detect Git provider from remote
+- [x] Detect and store default base branch
+- [x] Persist minimal config (YAML)
+- [x] Support provider override flag
 
 #### 5. Stack Detection & Validation
 

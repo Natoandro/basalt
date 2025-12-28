@@ -1,3 +1,4 @@
+mod cli;
 mod core;
 mod error;
 mod providers;
@@ -84,14 +85,7 @@ fn main() {
 }
 
 fn run_init(provider: Option<String>, base_branch: Option<String>) -> anyhow::Result<()> {
-    println!("🚧 Initializing basalt repository...");
-    if let Some(p) = provider {
-        println!("   Provider: {}", p);
-    }
-    if let Some(b) = base_branch {
-        println!("   Base branch: {}", b);
-    }
-    println!("\n⚠️  Not yet implemented - this is a placeholder");
+    cli::init::run_init(provider, base_branch)?;
     Ok(())
 }
 
