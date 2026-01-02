@@ -78,6 +78,9 @@ fn run_bt_init(
         args.push(b);
     }
 
+    // Skip authentication for tests
+    args.push("--skip-auth");
+
     let output = Command::new(env!("CARGO_BIN_EXE_bt"))
         .args(&args)
         .current_dir(repo_path)

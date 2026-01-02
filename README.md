@@ -80,16 +80,16 @@ basalt stores its metadata in **`.git/basalt/metadata.yml`** (inside the `.git/`
 - ✅ **Clean workspace** — Doesn't clutter your repository root
 - ✅ **Auto-cleanup** — Removed if `.git/` is deleted
 - ✅ **Following precedent** — Similar to how git-lfs uses `.git/lfs/`
+- ✅ **Cached metadata** — Stores provider URL, project path, and auth token for fast access
 
 Team-wide configuration can optionally be stored in `.basalt.toml` in the repository root (this can be committed).
 
 ### Dependencies
 
 - **No external git dependency** — Uses gitoxide (pure Rust git implementation)
-- Provider-specific CLI:
-  - `glab` for GitLab
-  - `gh` for GitHub
-  - etc.
+- **No provider CLI required** — Direct REST API integration
+- Network access to provider APIs (GitLab, GitHub, etc.)
+- **Supports self-hosted instances** — Extracts and caches instance URL from git remote
 
 ---
 
@@ -115,16 +115,20 @@ Anything not strictly required to reach this outcome is **deferred** for post-MV
 
 #### 2. GitLab Provider Implementation
 
-- [ ] Implement GitLab provider
-- [ ] Implement MR creation via `glab mr create`
-- [ ] Implement MR update logic
-- [ ] Parse JSON output from `glab` commands
+- [x] Implement GitLab REST API client
+- [x] Implement authentication (glab token, git credential, or PAT prompt)
+- [x] Implement MR creation via POST `/projects/:id/merge_requests`
+- [x] Implement MR update via PUT `/projects/:id/merge_requests/:mr_iid`
+- [x] Implement MR retrieval via GET `/projects/:id/merge_requests/:mr_iid`
+- [x] Parse JSON responses from GitLab API
+- [x] Support self-hosted GitLab instances (extracts and caches URL from git remote)
+- [x] Cache provider base URL and project path in metadata
+- [x] Verify token scopes (requires 'api' scope)
 
 #### 3. Environment & Dependency Checks
 
 - [x] Verify execution inside a Git repository
-- [x] Verify required provider CLI is available
-- [x] Verify provider authentication
+- [x] Verify provider authentication (API token)
 - [x] Provide clear, actionable error messages
 
 #### 4. Repository Initialization (`bt init`)
@@ -301,9 +305,12 @@ Charcoal users will be able to migrate to basalt's GitHub provider when availabl
 
 - **Explicit over implicit** — Predictable, transparent behavior
 - **Fail fast and loudly** — Clear errors, no silent failures
-- **Leverage existing tools** — Let Git and provider CLIs do what they do well
+- **Leverage existing tools** — Let Git do what it does well, use APIs for the rest
 - **Local-first** — Never require network for read-only operations
 - **Provider parity** — Core operations work across all providers
+- **Direct API access** — No external CLI dependencies, full control over interactions
+- **Self-hosted support** — Works with gitlab.com and self-hosted GitLab instances
+- **Metadata caching** — Stores provider URL, project path, and credentials for fast access
 
 ---
 
@@ -312,7 +319,7 @@ Charcoal users will be able to migrate to basalt's GitHub provider when availabl
 - Web UI or desktop application
 - Replacing provider-native features (CI, merge queues)
 - Background services or daemons
-- Direct provider API usage (always delegate to CLIs)
+- Complex OAuth flows (use simpler PAT authentication)
 
 ---
 
@@ -432,8 +439,8 @@ cargo make test-docker-matrix
 # Specific scenarios
 ./scripts/test-docker.sh all             # Full environment (default)
 ./scripts/test-docker.sh no-git          # Without git (error handling)
-./scripts/test-docker.sh no-providers    # Without glab/gh
-./scripts/test-docker.sh with-providers  # With glab + gh
+./scripts/test-docker.sh no-network      # Without network access
+./scripts/test-docker.sh no-auth         # Without authentication
 
 # Development
 ./scripts/test-docker.sh shell           # Interactive debugging
@@ -451,7 +458,8 @@ cargo make test-docker-matrix            # All scenarios
 ```
 
 **Why Docker?**
-- ✅ **Test dependency handling** — Verify behavior when git/glab/gh are missing
+- ✅ **Test dependency handling** — Verify behavior when git is missing
+- ✅ **Test authentication** — Verify auth fallback mechanisms
 - ✅ **Environment isolation** — Clean, reproducible test environments
 - ✅ **CI parity** — Match what runs in GitHub Actions
 - ✅ **Cross-platform** — Test Linux behavior regardless of dev OS
@@ -459,7 +467,7 @@ cargo make test-docker-matrix            # All scenarios
 **When to use:**
 - Before submitting PRs (run `cargo make test-docker-matrix`)
 - When debugging environment-specific issues
-- To verify error messages for missing dependencies
+- To verify error messages for missing git or authentication issues
 
 **For daily development**, native `cargo test` is faster. Docker tests are for comprehensive validation.
 

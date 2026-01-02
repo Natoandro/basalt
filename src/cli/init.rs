@@ -4,6 +4,8 @@
 //! - Creating the `.git/basalt/` directory
 //! - Auto-detecting the Git provider from remote URL
 //! - Detecting the default base branch
+//! - Authenticating with the provider
+//! - Storing the authentication token
 //! - Creating initial metadata file
 //!
 //! # Example
@@ -23,7 +25,7 @@
 
 use crate::core::{environment, git, metadata};
 use crate::error::{Error, Result};
-use crate::providers::ProviderType;
+use crate::providers::{Provider, ProviderType};
 
 /// Run the init command
 ///
@@ -51,6 +53,7 @@ use crate::providers::ProviderType;
 pub fn run_init(
     provider_override: Option<String>,
     base_branch_override: Option<String>,
+    skip_auth: bool,
 ) -> Result<()> {
     // Check prerequisites (gitoxide will fail if git repo doesn't exist)
     let repo_root = environment::require_git_repository()?;
@@ -75,8 +78,30 @@ pub fn run_init(
     let basalt_dir = environment::create_basalt_dir()?;
     println!("✓ Created metadata directory: {}", basalt_dir.display());
 
-    // Create and save metadata
-    let metadata = metadata::Metadata::new(provider, base_branch.clone());
+    // Extract provider base URL and project path from git remote (if available)
+    // If no remote exists, these will be None and extracted later when needed
+    let base_url = get_provider_base_url().ok();
+    let project_path = get_project_path().ok();
+
+    // Create metadata
+    let mut metadata = metadata::Metadata::new(provider, base_branch.clone());
+    metadata.base_url = base_url.clone();
+    metadata.project_path = project_path.clone();
+
+    // Authenticate with provider and store token (unless skipped for testing)
+    if !skip_auth {
+        println!();
+
+        // Only authenticate if we have remote info (base_url and project_path)
+        if let (Some(url), Some(path)) = (&base_url, &project_path) {
+            let auth_token = authenticate_provider(provider, url, path)?;
+            metadata.auth_token = Some(auth_token);
+        } else {
+            println!("⚠️  No git remote found - skipping authentication");
+            println!("   Authentication will be required when you first use bt commands");
+        }
+    }
+
     metadata::save_metadata(&metadata)?;
     println!(
         "✓ Saved metadata: {}",
@@ -160,6 +185,95 @@ fn detect_base_branch(base_branch_override: Option<String>) -> Result<String> {
 
     println!("  Auto-detecting base branch...");
     git::detect_default_branch()
+}
+
+/// Authenticate with the provider
+///
+/// Attempts to authenticate and returns the auth token to be stored.
+///
+/// # Arguments
+///
+/// * `provider` - Provider type to authenticate with
+/// * `base_url` - Provider base URL (already extracted)
+/// * `project_path` - Project path (already extracted)
+///
+/// # Errors
+///
+/// Returns an error if authentication fails
+fn authenticate_provider(
+    provider: ProviderType,
+    base_url: &str,
+    project_path: &str,
+) -> Result<String> {
+    println!("🔐 Authenticating with {}...", provider);
+
+    match provider {
+        ProviderType::GitLab => {
+            let mut gitlab = crate::providers::gitlab::GitLabProvider::new(base_url)?;
+            gitlab.set_project_path(project_path.to_string());
+            gitlab.authenticate()?;
+
+            let token = gitlab.get_auth_token().ok_or_else(|| {
+                Error::config("Failed to get authentication token after successful authentication")
+            })?;
+
+            println!("✓ Successfully authenticated with {}", provider);
+            Ok(token)
+        }
+        ProviderType::GitHub => {
+            // TODO: Implement GitHub authentication
+            Err(Error::config("GitHub authentication not yet implemented"))
+        }
+    }
+}
+
+/// Get the provider base URL from git remote
+///
+/// Extracts the base URL (e.g., "https://gitlab.com") from the git remote URL.
+/// This supports both gitlab.com and self-hosted instances.
+///
+/// Returns an error if no remotes exist.
+fn get_provider_base_url() -> Result<String> {
+    let remotes = git::list_remotes()?;
+
+    if remotes.is_empty() {
+        return Err(Error::config(
+            "No git remotes found. Add a remote first or authentication will be deferred.",
+        ));
+    }
+
+    let remote_name = if remotes.contains(&"origin".to_string()) {
+        "origin"
+    } else {
+        &remotes[0]
+    };
+
+    let remote_url = git::get_remote_url(remote_name)?;
+    ProviderType::extract_base_url(&remote_url)
+}
+
+/// Get the project path from git remote
+///
+/// Extracts the project path (e.g., "owner/repo") from the git remote URL.
+///
+/// Returns an error if no remotes exist.
+fn get_project_path() -> Result<String> {
+    let remotes = git::list_remotes()?;
+
+    if remotes.is_empty() {
+        return Err(Error::config(
+            "No git remotes found. Add a remote first or project path will be extracted later.",
+        ));
+    }
+
+    let remote_name = if remotes.contains(&"origin".to_string()) {
+        "origin"
+    } else {
+        &remotes[0]
+    };
+
+    let remote_url = git::get_remote_url(remote_name)?;
+    ProviderType::extract_project_path(&remote_url)
 }
 
 #[cfg(test)]

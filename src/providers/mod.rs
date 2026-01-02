@@ -12,25 +12,22 @@
 //!
 //! - **Isolation**: All provider-specific logic is isolated in provider implementations
 //! - **Agnostic core**: Core stack logic remains provider-agnostic
-//! - **CLI delegation**: Each provider delegates to its respective CLI tool (glab, gh, etc.)
-//! - **No direct API calls**: Always use provider CLIs, never call APIs directly
+//! - **Direct API access**: Each provider uses REST APIs directly (no CLI dependencies)
+//! - **Smart authentication**: Reuse existing tokens or prompt for PAT
 //!
-//! ## CLI Delegation Pattern
+//! ## Direct API Pattern
 //!
-//! All providers delegate to their respective CLI tools instead of calling provider APIs directly.
+//! All providers call REST APIs directly using HTTP clients (reqwest).
 //! This provides:
-//! - Simpler authentication (use existing CLI auth flows)
-//! - Automatic updates (CLI tools handle API changes)
-//! - Less maintenance (no API client code)
-//! - User familiarity (respects existing CLI configuration)
+//! - Full control over API interactions
+//! - Better error handling and debugging
+//! - No subprocess overhead
+//! - Minimal dependencies (no external CLI required)
 //!
-//! All CLI commands use JSON output for structured parsing:
-//! ```rust,ignore
-//! let output = Command::new("glab")
-//!     .args(&["mr", "create", "--json"])
-//!     .output()?;
-//! let mr: MergeRequest = serde_json::from_slice(&output.stdout)?;
-//! ```
+//! Authentication priority:
+//! 1. Read provider CLI token if available (e.g., glab's token)
+//! 2. Fallback to git credential helper
+//! 3. Prompt user for Personal Access Token (PAT)
 //!
 //! # Usage Example
 //!
@@ -38,18 +35,17 @@
 //! use crate::providers::{create_provider, ProviderType, CreateReviewParams};
 //!
 //! // Create a provider instance
-//! let provider = create_provider(ProviderType::GitLab);
+//! let mut provider = create_provider(ProviderType::GitLab);
 //!
-//! // Check prerequisites
-//! provider.check_cli_available()?;
-//! provider.check_authentication()?;
+//! // Authenticate
+//! provider.authenticate()?;
 //!
 //! // Create a review
 //! let params = CreateReviewParams {
 //!     source_branch: "feature-branch".to_string(),
 //!     target_branch: "main".to_string(),
 //!     title: "Add new feature".to_string(),
-//!     description: "This PR adds...".to_string(),
+//!     description: Some("This PR adds...".to_string()),
 //!     draft: true,
 //! };
 //!
@@ -59,8 +55,8 @@
 //!
 //! # Provider Implementations
 //!
-//! - [`gitlab::GitLabProvider`] - GitLab provider using `glab` CLI (in progress)
-//! - [`github::GitHubProvider`] - GitHub provider using `gh` CLI (in progress)
+//! - [`gitlab::GitLabProvider`] - GitLab provider using REST API (in progress)
+//! - [`github::GitHubProvider`] - GitHub provider using REST API (planned)
 //! - [`mock::MockProvider`] - Mock provider for testing (complete)
 
 #![allow(dead_code)] // Allow during early development
@@ -71,15 +67,16 @@ use std::fmt;
 
 pub mod github;
 pub mod gitlab;
+pub mod gitlab_api;
 pub mod mock;
 
 /// Supported provider types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
-    /// GitLab provider (uses glab CLI)
+    /// GitLab provider (uses REST API)
     GitLab,
-    /// GitHub provider (uses gh CLI)
+    /// GitHub provider (uses REST API)
     GitHub,
 }
 
@@ -107,6 +104,97 @@ impl ProviderType {
             })
         }
     }
+
+    /// Extract base URL from git remote URL
+    ///
+    /// Converts a git remote URL to the base URL of the hosting service.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // GitLab
+    /// extract_base_url("https://gitlab.com/user/repo.git")
+    ///   -> "https://gitlab.com"
+    /// extract_base_url("git@gitlab.com:user/repo.git")
+    ///   -> "https://gitlab.com"
+    /// extract_base_url("https://gitlab.example.com/user/repo.git")
+    ///   -> "https://gitlab.example.com"
+    ///
+    /// // GitHub
+    /// extract_base_url("https://github.com/user/repo.git")
+    ///   -> "https://github.com"
+    /// extract_base_url("git@github.com:user/repo.git")
+    ///   -> "https://github.com"
+    /// ```
+    pub fn extract_base_url(remote_url: &str) -> Result<String> {
+        // Handle SSH URLs (git@host:path)
+        if let Some(ssh_part) = remote_url.strip_prefix("git@") {
+            if let Some(host) = ssh_part.split(':').next() {
+                return Ok(format!("https://{}", host));
+            }
+        }
+
+        // Handle HTTPS URLs (https://host/path or http://host/path)
+        if remote_url.starts_with("https://") || remote_url.starts_with("http://") {
+            let url = remote_url.trim_end_matches(".git").trim_end_matches('/');
+
+            // Extract protocol and host
+            if let Some(proto_end) = url.find("://") {
+                let after_proto = &url[proto_end + 3..];
+                if let Some(path_start) = after_proto.find('/') {
+                    let host = &after_proto[..path_start];
+                    let protocol = &url[..proto_end];
+                    return Ok(format!("{}://{}", protocol, host));
+                }
+            }
+        }
+
+        Err(Error::config(format!(
+            "Unable to extract base URL from remote: {}",
+            remote_url
+        )))
+    }
+
+    /// Extract project path from git remote URL
+    ///
+    /// Extracts the project path (owner/repo) from a git remote URL.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// extract_project_path("https://gitlab.com/owner/repo.git")
+    ///   -> "owner/repo"
+    /// extract_project_path("git@gitlab.com:owner/repo.git")
+    ///   -> "owner/repo"
+    /// extract_project_path("https://gitlab.example.com/group/subgroup/repo.git")
+    ///   -> "group/subgroup/repo"
+    /// ```
+    pub fn extract_project_path(remote_url: &str) -> Result<String> {
+        // Handle SSH URLs (git@host:path)
+        if let Some(ssh_part) = remote_url.strip_prefix("git@") {
+            if let Some(path) = ssh_part.split(':').nth(1) {
+                return Ok(path.trim_end_matches(".git").to_string());
+            }
+        }
+
+        // Handle HTTPS URLs
+        if remote_url.starts_with("https://") || remote_url.starts_with("http://") {
+            let url = remote_url.trim_end_matches(".git").trim_end_matches('/');
+
+            if let Some(proto_end) = url.find("://") {
+                let after_proto = &url[proto_end + 3..];
+                if let Some(path_start) = after_proto.find('/') {
+                    let path = &after_proto[path_start + 1..];
+                    return Ok(path.to_string());
+                }
+            }
+        }
+
+        Err(Error::config(format!(
+            "Unable to extract project path from remote: {}",
+            remote_url
+        )))
+    }
 }
 
 impl fmt::Display for ProviderType {
@@ -127,8 +215,8 @@ pub struct Review {
     pub url: String,
     /// Review title
     pub title: String,
-    /// Review description/body
-    pub description: String,
+    /// Review description/body (optional)
+    pub description: Option<String>,
     /// Source branch name
     pub source_branch: String,
     /// Target branch name
@@ -170,8 +258,8 @@ pub struct CreateReviewParams {
     pub target_branch: String,
     /// Review title
     pub title: String,
-    /// Review description
-    pub description: String,
+    /// Review description (optional)
+    pub description: Option<String>,
     /// Whether to create as draft
     pub draft: bool,
 }
@@ -199,67 +287,44 @@ pub struct UpdateReviewParams {
 /// # Example
 ///
 /// ```rust,ignore
-/// let provider = create_provider(ProviderType::GitLab);
+/// let mut provider = create_provider(ProviderType::GitLab)?;
 ///
-/// // Use provider methods directly instead of provider_type().method()
-/// println!("Using CLI: {}", provider.cli_name());  // "glab"
-/// println!("Install from: {}", provider.install_url());
-///
-/// provider.check_cli_available()?;
-/// provider.check_authentication()?;
+/// provider.authenticate()?;
+/// let review = provider.create_review(params)?;
 /// ```
 pub trait Provider: Send + Sync {
     /// Get the provider type
     fn provider_type(&self) -> ProviderType;
 
-    /// Get the CLI command name for this provider
-    fn cli_name(&self) -> &'static str {
-        match self.provider_type() {
-            ProviderType::GitLab => "glab",
-            ProviderType::GitHub => "gh",
-        }
-    }
-
-    /// Get the installation URL for the provider CLI
-    fn install_url(&self) -> &'static str {
-        match self.provider_type() {
-            ProviderType::GitLab => "https://gitlab.com/gitlab-org/cli",
-            ProviderType::GitHub => "https://cli.github.com/",
-        }
-    }
-
-    /// Get the authentication command for this provider
-    fn auth_command(&self) -> &'static str {
-        match self.provider_type() {
-            ProviderType::GitLab => "glab auth login",
-            ProviderType::GitHub => "gh auth login",
-        }
-    }
-
-    /// Check if the provider CLI is installed
-    fn check_cli_available(&self) -> Result<()>;
-
     /// Check if the user is authenticated with the provider
     fn check_authentication(&self) -> Result<()>;
 
+    /// Authenticate with the provider
+    ///
+    /// This attempts to find and verify an authentication token.
+    fn authenticate(&mut self) -> Result<()>;
+
     /// Create a new review (MR/PR)
-    fn create_review(&self, params: CreateReviewParams) -> Result<Review>;
+    fn create_review(&mut self, params: CreateReviewParams) -> Result<Review>;
 
     /// Update an existing review
-    fn update_review(&self, params: UpdateReviewParams) -> Result<Review>;
+    fn update_review(&mut self, params: UpdateReviewParams) -> Result<Review>;
 
     /// Get review details by ID
-    fn get_review(&self, review_id: &str) -> Result<Review>;
+    fn get_review(&mut self, review_id: &str) -> Result<Review>;
 
     /// Check if a review exists for the given branch
-    fn find_review_for_branch(&self, branch: &str) -> Result<Option<Review>>;
+    fn find_review_for_branch(&mut self, branch: &str) -> Result<Option<Review>>;
 }
 
 /// Create a provider instance for the given provider type
-pub fn create_provider(provider_type: ProviderType) -> Box<dyn Provider> {
+///
+/// For GitLab, uses the default gitlab.com instance.
+/// For self-hosted instances, create the provider directly.
+pub fn create_provider(provider_type: ProviderType) -> Result<Box<dyn Provider>> {
     match provider_type {
-        ProviderType::GitLab => Box::new(gitlab::GitLabProvider::new()),
-        ProviderType::GitHub => Box::new(github::GitHubProvider::new()),
+        ProviderType::GitLab => Ok(Box::new(gitlab::GitLabProvider::new("https://gitlab.com")?)),
+        ProviderType::GitHub => Ok(Box::new(github::GitHubProvider::new())),
     }
 }
 
@@ -319,14 +384,6 @@ mod tests {
     }
 
     #[test]
-    fn test_provider_cli_name() {
-        let gitlab = mock::MockProvider::new_gitlab();
-        let github = mock::MockProvider::new_github();
-        assert_eq!(gitlab.cli_name(), "glab");
-        assert_eq!(github.cli_name(), "gh");
-    }
-
-    #[test]
     fn test_provider_type_display() {
         assert_eq!(ProviderType::GitLab.to_string(), "GitLab");
         assert_eq!(ProviderType::GitHub.to_string(), "GitHub");
@@ -337,5 +394,64 @@ mod tests {
         assert_eq!(ReviewState::Open.to_string(), "open");
         assert_eq!(ReviewState::Merged.to_string(), "merged");
         assert_eq!(ReviewState::Closed.to_string(), "closed");
+    }
+
+    #[test]
+    fn test_extract_base_url() {
+        // GitLab HTTPS
+        assert_eq!(
+            ProviderType::extract_base_url("https://gitlab.com/user/repo.git").unwrap(),
+            "https://gitlab.com"
+        );
+        assert_eq!(
+            ProviderType::extract_base_url("https://gitlab.example.com/user/repo.git").unwrap(),
+            "https://gitlab.example.com"
+        );
+
+        // GitLab SSH
+        assert_eq!(
+            ProviderType::extract_base_url("git@gitlab.com:user/repo.git").unwrap(),
+            "https://gitlab.com"
+        );
+        assert_eq!(
+            ProviderType::extract_base_url("git@gitlab.example.com:user/repo.git").unwrap(),
+            "https://gitlab.example.com"
+        );
+
+        // GitHub
+        assert_eq!(
+            ProviderType::extract_base_url("https://github.com/user/repo.git").unwrap(),
+            "https://github.com"
+        );
+        assert_eq!(
+            ProviderType::extract_base_url("git@github.com:user/repo.git").unwrap(),
+            "https://github.com"
+        );
+    }
+
+    #[test]
+    fn test_extract_project_path() {
+        // Simple paths
+        assert_eq!(
+            ProviderType::extract_project_path("https://gitlab.com/owner/repo.git").unwrap(),
+            "owner/repo"
+        );
+        assert_eq!(
+            ProviderType::extract_project_path("git@gitlab.com:owner/repo.git").unwrap(),
+            "owner/repo"
+        );
+
+        // Nested paths (GitLab groups)
+        assert_eq!(
+            ProviderType::extract_project_path("https://gitlab.com/group/subgroup/repo.git")
+                .unwrap(),
+            "group/subgroup/repo"
+        );
+
+        // GitHub
+        assert_eq!(
+            ProviderType::extract_project_path("https://github.com/user/repo.git").unwrap(),
+            "user/repo"
+        );
     }
 }

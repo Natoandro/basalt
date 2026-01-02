@@ -165,13 +165,10 @@ pub fn require_no_rebase_in_progress() -> Result<()> {
 /// use crate::providers::{create_provider, ProviderType};
 /// use crate::core::environment;
 ///
-/// let provider = create_provider(ProviderType::GitLab);
+/// let provider = create_provider(ProviderType::GitLab)?;
 /// environment::check_provider_prerequisites(&*provider)?;
 /// ```
 pub fn check_provider_prerequisites(provider: &dyn Provider) -> Result<()> {
-    // Check CLI is available
-    provider.check_cli_available()?;
-
     // Check authentication
     provider.check_authentication()?;
 

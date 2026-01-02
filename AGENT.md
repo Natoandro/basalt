@@ -49,20 +49,26 @@ trait Provider {
 - ❌ Never hardcode provider-specific assumptions in core code
 - ❌ Never bypass the provider abstraction
 
-### 2. Delegate to Provider CLIs
+### 2. Direct API Integration with Smart Authentication
 
-basalt does **NOT** directly call provider APIs. Instead:
+basalt calls provider REST APIs directly using HTTP clients:
 
-- GitLab → Use `glab` CLI
-- GitHub → Use `gh` CLI
-- Parse JSON output from these tools
-- Handle authentication through their auth systems
+- GitLab → Direct REST API calls via `reqwest`
+- GitHub → Direct REST API calls via `reqwest` (future)
+- Parse JSON responses using `serde`
+- Smart authentication: read existing tokens or prompt for PAT
+
+**Authentication Priority:**
+1. Read provider CLI token if available (e.g., glab's token for GitLab)
+2. Fallback to git credential helper
+3. Prompt user for Personal Access Token (PAT)
 
 **Why:**
-- Leverages existing, well-tested tools
-- Automatic updates and bug fixes
-- No API key management in basalt
-- Respects user's existing auth configuration
+- Full control over API interactions
+- Minimal dependencies (no external CLI required)
+- Better error handling and debugging
+- Faster (no subprocess overhead)
+- Transparent API usage
 
 ### 3. Local-First Philosophy
 
@@ -185,19 +191,25 @@ pub fn detect_stack(branch: &str) -> Result<Stack> {
 - Follow standard Rust conventions (`rustfmt`, `clippy`)
 - Use `Result<T, Error>` for all fallible operations
 - Prefer `&str` for function parameters, `String` for owned data
-- Use `anyhow` for application errors, `thiserror` for library errors
+- Use `thiserror` for all error types (consistent, structured errors)
+- Never use `anyhow` - always define proper error types
 
 ### Error Handling
 
 ```rust
-// Good: Specific, actionable error messages
-return Err(Error::ProviderCliNotFound {
-    provider: "GitLab",
-    cli_name: "glab",
-    install_url: "https://gitlab.com/gitlab-org/cli",
-});
+// Good: Specific, actionable error messages using thiserror
+#[derive(Debug, Error)]
+pub enum GitLabError {
+    #[error("Authentication failed: Invalid or expired token")]
+    AuthenticationFailed,
+    
+    #[error("Token is missing required scope: {required}")]
+    MissingScope { required: String },
+}
 
-// Bad: Generic error
+return Err(GitLabError::AuthenticationFailed);
+
+// Bad: Generic error strings
 return Err(Error::Generic("Something went wrong".to_string()));
 ```
 
@@ -228,18 +240,27 @@ return Err(Error::Generic("Something went wrong".to_string()));
 - Handle errors explicitly with proper context
 - Provide clear error messages that help users fix issues
 
-### Provider CLI Calls
+### Provider API Calls
 
 ```rust
-// Good: Parse JSON, handle errors
-let output = Command::new("glab")
-    .args(["mr", "create", "--json"])
-    .output()?;
-let mr: MergeRequest = serde_json::from_slice(&output.stdout)?;
+// Good: Direct API call with proper error handling using thiserror
+let response = client
+    .post(&format!("{}/projects/{}/merge_requests", api_url, project_id))
+    .header("PRIVATE-TOKEN", &token)
+    .json(&create_params)
+    .send()?;
 
-// Bad: String parsing, fragile
-let output = Command::new("glab").args(["mr", "create"]).output()?;
-let url = String::from_utf8(output.stdout)?.trim().to_string();
+if !response.status().is_success() {
+    return Err(GitLabError::ApiError {
+        status: response.status().as_u16(),
+        message: response.text().unwrap_or_default(),
+    });
+}
+
+let mr: MergeRequest = response.json()?;
+
+// Bad: Using anyhow instead of thiserror
+let response = client.post(&url).send().context("Failed to create MR")?;
 ```
 
 ---
@@ -277,9 +298,10 @@ basalt uses a **two-tier testing approach**:
 
 - Test full workflows with real git repositories
 - Use temporary git repos (via `tempfile` crate)
-- Mock provider CLI calls (don't require actual glab/gh)
+- Mock HTTP responses for provider APIs (using `wiremock` or similar)
 - Test migration scenarios (Charcoal → basalt)
 - Test cross-platform behavior
+- Test authentication fallback chains
 - Run with `cargo test --test '*'`
 
 ### Docker Environment Tests
@@ -289,8 +311,8 @@ Docker tests verify basalt behavior in different environment configurations:
 **Scenarios:**
 1. **Full environment** (`test`) - All dependencies installed (default)
 2. **No git** (`test-no-git`) - Verifies error handling when git is missing
-3. **No providers** (`test-no-providers`) - Tests without glab/gh CLIs
-4. **With providers** (`test-with-providers`) - Tests with glab + gh installed
+3. **No network** (`test-no-network`) - Tests offline behavior
+4. **No auth** (`test-no-auth`) - Tests authentication fallback mechanisms
 
 **Run Docker tests:**
 
@@ -298,7 +320,7 @@ Docker tests verify basalt behavior in different environment configurations:
 # Quick commands
 ./scripts/test-docker.sh all              # Full environment (default)
 ./scripts/test-docker.sh no-git           # Test missing git scenario
-./scripts/test-docker.sh no-providers     # Test without glab/gh
+./scripts/test-docker.sh no-network       # Test offline behavior
 ./scripts/test-docker.sh matrix           # Run all scenarios
 
 # Using cargo-make
@@ -308,7 +330,8 @@ cargo make test-docker-shell              # Interactive debugging
 ```
 
 **Why Docker tests matter:**
-- Verify graceful degradation when dependencies are missing
+- Verify graceful degradation when git is missing
+- Test authentication fallback mechanisms
 - Ensure error messages are helpful and actionable
 - Test in clean, reproducible environments
 - Catch environment-specific issues before CI
@@ -460,25 +483,46 @@ branches:
 
 ### GitLab Provider (MVP)
 
-- Use `glab` CLI exclusively
-- Commands to implement:
-  - `glab auth status` — Check authentication
-  - `glab mr create --fill --draft --json` — Create MR
-  - `glab mr update <id> --json` — Update MR
-  - `glab mr view <id> --json` — Get MR details
-- Parse JSON output from provider CLIs using `serde_json`
+- Use GitLab REST API directly via `reqwest`
+- **Supports both gitlab.com and self-hosted instances**
+- **Caches instance URL and project path in metadata**
+  - Only extracts from git remote when missing or invalid
+  - Stored in `.git/basalt/metadata.yml` for fast access
+- API endpoints to implement:
+  - `GET /user` — Verify authentication
+  - `GET /personal_access_tokens/self` — Verify token scopes
+  - `POST /projects/:id/merge_requests` — Create MR
+  - `PUT /projects/:id/merge_requests/:mr_iid` — Update MR
+  - `GET /projects/:id/merge_requests/:mr_iid` — Get MR details
+- **Authentication Priority**:
+  1. Use stored token from metadata (`.git/basalt/metadata.yml`)
+  2. If no stored token or authentication fails (expired/revoked):
+     - Try reading from glab CLI config (`~/.config/glab-cli/config.yml`)
+     - Try git credential helper (`git credential fill`)
+     - Offer CLI auth: if glab available, ask user to choose:
+       - Option 1: Run `glab auth login` (interactive)
+       - Option 2: Enter PAT manually
+     - If no glab, prompt for PAT directly
+  3. Verify token has required scopes (must have 'api' scope)
+  4. Store successful token in metadata for future use
+- Parse JSON responses using `serde_json`
 - Parse YAML metadata files using `serde_yaml`
-- Store MR ID (with `!` prefix) in metadata
+- Store MR IID (internal ID) and auth token in metadata
+- Use `thiserror` for all error types (not `anyhow`)
 
 ### GitHub Provider (Post-MVP)
 
-- Use `gh` CLI exclusively
+- Use GitHub REST API directly via `reqwest`
 - Leverage Charcoal knowledge for workflow patterns
-- Commands to implement:
-  - `gh auth status` — Check authentication
-  - `gh pr create --draft --json` — Create PR
-  - `gh pr edit <number> --json` — Update PR
-  - `gh pr view <number> --json` — Get PR details
+- API endpoints to implement:
+  - `GET /user` — Verify authentication
+  - `POST /repos/:owner/:repo/pulls` — Create PR
+  - `PATCH /repos/:owner/:repo/pulls/:number` — Update PR
+  - `GET /repos/:owner/:repo/pulls/:number` — Get PR details
+- Authentication:
+  - Read gh's token from `~/.config/gh/hosts.yml` if available
+  - Fallback to git credential helper
+  - Fallback to prompting user for PAT
 - Store PR number in metadata
 
 ### Provider Detection
@@ -537,16 +581,25 @@ fn detect_provider(repo: &Repository) -> Result<ProviderType> {
 5. **Don't make network requests in core** — Delegate to providers
 6. **Don't use print!() directly** — Use proper logging/output framework
 7. **Don't panic!()** — Return Result with clear error
+8. **Don't hardcode API tokens** — Store in metadata, fetch only when needed
+9. **Don't spawn provider CLIs for API operations** — Use direct REST API calls
+10. **Don't use anyhow** — Always use thiserror for proper error types
+11. **Don't fetch auth tokens on every operation** — Use stored token, only refresh if invalid
 
 ### ✅ Do This
 
 1. **Use provider trait** — All provider operations go through abstraction
 2. **Validate git state** — Check for uncommitted changes, conflicts, etc.
-3. **Parse structured output** — JSON from provider CLIs
-4. **Provide clear errors** — Include context and next steps
+3. **Parse structured responses** — JSON from provider APIs
+4. **Provide clear errors** — Include context and next steps using thiserror
 5. **Test with temp repos** — All git operations in tests
 6. **Document assumptions** — Comment non-obvious design decisions
-7. **Check dependencies** — Verify git, glab, gh are available
+7. **Mock HTTP responses** — Use wiremock or similar for testing
+8. **Handle auth gracefully** — Store token, try multiple sources only when needed
+9. **Verify token scopes** — Check token has required permissions before use
+10. **Offer CLI auth option** — If available, let user choose between CLI login or PAT
+11. **Cache provider metadata** — Store base_url and project_path, only extract from remote when needed
+12. **Use conditional compilation** — Disable test-only features in release builds
 
 ---
 
@@ -589,12 +642,14 @@ Closes #123
 - Great CLI ecosystem (clap, etc.)
 - Native git integration with gitoxide (no subprocess overhead)
 
-### Why CLI delegation vs direct API?
+### Why direct API vs CLI delegation?
 
-- Simpler authentication
-- Automatic updates to provider APIs
-- Less code to maintain
-- Leverages community tools
+- **Full control**: Direct control over API interactions and error handling
+- **Performance**: No subprocess overhead
+- **Transparency**: Easier to debug and understand API calls
+- **Minimal dependencies**: No external CLI tools required
+- **Better errors**: Structured error responses from APIs
+- **Smart auth**: Reuse existing tokens or prompt for PAT when needed
 
 ### Why gitoxide?
 
@@ -686,24 +741,128 @@ The following foundational work has been completed:
 - ✅ Basic error handling structure in place (`src/error.rs`)
 - ✅ Metadata location decided: `.git/basalt/` (never committed, clean workspace)
 - ✅ **Provider Abstraction Layer complete** (`src/providers/`):
-  - Provider trait with default methods for CLI helpers
+  - Provider trait for API-based operations
   - Review metadata structures (Review, ReviewState, CreateReviewParams, UpdateReviewParams)
   - Authentication interface
   - Mock provider for testing (fully functional)
   - Provider detection logic (from remote URLs and string parsing)
-  - GitLab and GitHub provider stubs with CLI availability/auth checks
+  - GitLab and GitHub provider stubs with authentication checks
 - ✅ **Environment & Dependency Checks complete** (`src/core/environment.rs`):
   - Git repository detection and validation
-  - Git CLI availability checks
-  - Provider CLI availability checks (delegates to provider trait)
-  - Provider authentication checks (delegates to provider trait)
   - Basalt directory management (`.git/basalt/`)
   - Initialization status checks
   - Working directory state checks (uncommitted changes, rebase in progress)
+  - Provider authentication checks (delegates to provider trait)
   - Comprehensive integration tests with temporary git repositories
   - Clear, actionable error messages for all failure cases
 
 **Next steps**: Complete Stack Detection & Validation (Section 5 of MVP tasks in README.md)
+
+---
+
+## Recently Completed Work (Continued)
+
+### GitLab Provider Implementation (Section 2) - Enhanced Authentication & Self-Hosted Support
+
+The GitLab provider now uses direct REST API access with intelligent authentication management and full support for self-hosted GitLab instances:
+
+- ✅ **GitLab REST API Client** (`src/providers/gitlab_api.rs`):
+  - Lightweight wrapper around GitLab REST API v4
+  - **Smart authentication priority**:
+    1. Use stored token (from metadata) if available
+    2. Only query external sources if token missing/invalid:
+       - Read from glab CLI config (`~/.config/glab-cli/config.yml`)
+       - Query git credential helper
+       - Offer CLI auth (run `glab auth login`) if glab is available
+       - Prompt for PAT as fallback
+  - **Token scope verification** via `GET /personal_access_tokens/self`
+    - Validates token has required 'api' scope
+    - Checks token is active (not expired/revoked)
+  - MR creation via `POST /projects/:id/merge_requests`
+  - MR update via `PUT /projects/:id/merge_requests/:mr_iid`
+  - MR retrieval via `GET /projects/:id/merge_requests/:mr_iid`
+  - Authentication verification via `GET /user`
+  - **Uses thiserror for all errors** (not anyhow)
+  - Clear, actionable error messages with structured error types
+  
+- ✅ **GitLab Provider** (`src/providers/gitlab.rs`):
+  - Direct REST API integration (no CLI dependency)
+  - Stores authentication state
+  - Methods to get/set auth token for metadata persistence
+  - Project path configuration support
+  - Full implementation of Provider trait
+  - Converts GitLab MR responses to Review structs
+  - Comprehensive unit tests
+  
+- ✅ **Metadata with Auth Token Storage** (`src/core/metadata.rs`):
+  - Added `auth_token: Option<String>` field
+  - Tokens stored in `.git/basalt/metadata.yml` (never committed)
+  - Only fetched from external sources when missing or invalid
+  - Reduces authentication prompts and improves UX
+  
+- ✅ **Init Command with Authentication** (`src/cli/init.rs`):
+  - Authenticates during `bt init`
+  - Stores token in metadata for future use
+  - Added `--skip-auth` flag for testing (conditionally compiled - debug builds only)
+  - Clear authentication flow with user choice (CLI vs PAT)
+  - **Caches base_url and project_path in metadata**
+  - Only extracts from git remote when missing or on first init
+  - Works with both HTTPS and SSH remote URLs
+  - Allows init without remote when provider is explicitly specified
+  
+- ✅ **Provider Trait Updates** (`src/providers/mod.rs`):
+  - Removed CLI-related methods (`check_cli_available`, `cli_name`, `install_url`, `auth_command`)
+  - Changed all methods to take `&mut self` for authentication state
+  - Added `authenticate()` method to Provider trait
+  - Updated Review struct to use `Option<String>` for description
+  - Updated documentation to reflect REST API approach
+  
+- ✅ **Mock Provider Updates** (`src/providers/mock.rs`):
+  - Updated to match new Provider trait signature
+  - Removed CLI availability simulation
+  - All tests updated and passing
+  
+- ✅ **Environment Checks Updates** (`src/core/environment.rs`):
+  - Removed CLI availability checks
+  - Updated to focus on authentication only
+  
+- ✅ **Provider URL Extraction** (`src/providers/mod.rs`):
+  - `extract_base_url()` - Extracts base URL from git remote (e.g., "https://gitlab.com")
+  - `extract_project_path()` - Extracts project path (e.g., "owner/repo")
+  - Supports both HTTPS and SSH remote URL formats
+  - Supports self-hosted GitLab instances (e.g., "https://gitlab.example.com")
+  - Supports nested project paths (GitLab groups/subgroups)
+  
+- ✅ **Metadata Caching** (`src/core/metadata.rs`):
+  - Added `base_url: Option<String>` field - cached provider instance URL
+  - Added `project_path: Option<String>` field - cached project path
+  - `get_base_url()` helper - returns cached value or extracts from remote
+  - `get_project_path()` helper - returns cached value or extracts from remote
+  - Reduces git remote parsing - only done on first init or when cache is invalid
+  
+- ✅ **Documentation Updates**:
+  - AGENT.md updated throughout to reflect REST API approach
+  - README.md updated to remove CLI dependencies
+  - All examples updated to show direct API usage
+
+**Dependencies added**:
+- `reqwest` (v0.12) with `json` and `blocking` features - HTTP client
+- `tokio` (v1.0) with runtime features - Async runtime (for future async support)
+- `urlencoding` (v2.1) - URL encoding for API paths
+- `dirs` (v5.0) - Cross-platform home directory detection
+
+**Key architectural decisions**:
+- **thiserror over anyhow**: Consistent structured errors throughout codebase
+- **Store tokens in metadata**: Reduces authentication friction, only fetch when needed
+- **Verify token scopes**: Catch permission issues early with clear error messages
+- **Offer CLI auth option**: If glab available, let user choose interactive login or PAT
+- **Token-first approach**: Try stored token first, only fall back to external sources if invalid
+- **Self-hosted support**: Extract instance URL from git remote, cache in metadata
+- **Metadata caching**: Store base_url and project_path, only extract when missing
+- **Skip-auth for testing only**: Conditionally compiled - completely absent in release builds
+- **Deferred extraction**: Allow init without remote, extract URL/path later when needed
+
+**All 55 tests passing** ✅ (36 unit + 8 environment + 11 init)
 
 ---
 
@@ -752,7 +911,7 @@ The following foundational work has been completed:
 
 ---
 
-*Last updated: Repository Initialization (`bt init`) complete (Section 4 of MVP)*
+*Last updated: GitLab Provider Implementation with Enhanced Authentication complete (Section 2 of MVP)*
 
 ---
 

@@ -32,8 +32,6 @@ struct MockProviderState {
     branch_to_review: HashMap<String, String>,
     /// Next review ID counter
     next_id: u32,
-    /// Whether CLI is available
-    cli_available: bool,
     /// Whether authentication is valid
     authenticated: bool,
     /// Simulate errors for testing
@@ -47,7 +45,6 @@ impl MockProvider {
     pub fn new(provider_type: ProviderType) -> Self {
         Self {
             state: Arc::new(Mutex::new(MockProviderState {
-                cli_available: true,
                 authenticated: true,
                 next_id: 1,
                 ..Default::default()
@@ -64,11 +61,6 @@ impl MockProvider {
     /// Create a new mock GitHub provider
     pub fn new_github() -> Self {
         Self::new(ProviderType::GitHub)
-    }
-
-    /// Set whether the CLI should be reported as available
-    pub fn set_cli_available(&self, available: bool) {
-        self.state.lock().unwrap().cli_available = available;
     }
 
     /// Set whether authentication should be reported as valid
@@ -132,32 +124,22 @@ impl Provider for MockProvider {
         self.provider_type
     }
 
-    fn check_cli_available(&self) -> Result<()> {
-        let state = self.state.lock().unwrap();
-        if state.cli_available {
-            Ok(())
-        } else {
-            Err(Error::ProviderCliNotFound {
-                provider: self.provider_type().to_string(),
-                cli_name: self.cli_name().to_string(),
-                install_url: self.install_url().to_string(),
-            })
-        }
-    }
-
     fn check_authentication(&self) -> Result<()> {
-        let state = self.state.lock().unwrap();
-        if state.authenticated {
+        if self.state.lock().unwrap().authenticated {
             Ok(())
         } else {
             Err(Error::ProviderAuthRequired {
                 provider: self.provider_type().to_string(),
-                auth_command: self.auth_command().to_string(),
+                auth_command: "mock auth login".to_string(),
             })
         }
     }
 
-    fn create_review(&self, params: CreateReviewParams) -> Result<Review> {
+    fn authenticate(&mut self) -> Result<()> {
+        self.check_authentication()
+    }
+
+    fn create_review(&mut self, params: CreateReviewParams) -> Result<Review> {
         let mut state = self.state.lock().unwrap();
 
         if state.should_fail_create {
@@ -197,7 +179,7 @@ impl Provider for MockProvider {
         Ok(review)
     }
 
-    fn update_review(&self, params: UpdateReviewParams) -> Result<Review> {
+    fn update_review(&mut self, params: UpdateReviewParams) -> Result<Review> {
         let mut state = self.state.lock().unwrap();
 
         if state.should_fail_update {
@@ -217,7 +199,7 @@ impl Provider for MockProvider {
             review.title = title;
         }
         if let Some(description) = params.description {
-            review.description = description;
+            review.description = Some(description);
         }
         if let Some(target_branch) = params.target_branch {
             review.target_branch = target_branch;
@@ -229,7 +211,7 @@ impl Provider for MockProvider {
         Ok(review.clone())
     }
 
-    fn get_review(&self, review_id: &str) -> Result<Review> {
+    fn get_review(&mut self, review_id: &str) -> Result<Review> {
         let state = self.state.lock().unwrap();
 
         if state.should_fail_get {
@@ -246,7 +228,7 @@ impl Provider for MockProvider {
             })
     }
 
-    fn find_review_for_branch(&self, branch: &str) -> Result<Option<Review>> {
+    fn find_review_for_branch(&mut self, branch: &str) -> Result<Option<Review>> {
         let state = self.state.lock().unwrap();
 
         if let Some(review_id) = state.branch_to_review.get(branch) {
@@ -271,32 +253,25 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_available() {
-        let provider = MockProvider::new_gitlab();
-        assert!(provider.check_cli_available().is_ok());
-
-        provider.set_cli_available(false);
-        assert!(provider.check_cli_available().is_err());
-    }
-
-    #[test]
     fn test_authentication() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
         assert!(provider.check_authentication().is_ok());
+        assert!(provider.authenticate().is_ok());
 
         provider.set_authenticated(false);
         assert!(provider.check_authentication().is_err());
+        assert!(provider.authenticate().is_err());
     }
 
     #[test]
     fn test_create_review_gitlab() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
 
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Test MR".to_string(),
-            description: "Test description".to_string(),
+            description: Some("Test description".to_string()),
             draft: true,
         };
 
@@ -312,13 +287,13 @@ mod tests {
 
     #[test]
     fn test_create_review_github() {
-        let provider = MockProvider::new_github();
+        let mut provider = MockProvider::new_github();
 
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Test PR".to_string(),
-            description: "Test description".to_string(),
+            description: Some("Test description".to_string()),
             draft: false,
         };
 
@@ -328,14 +303,14 @@ mod tests {
     }
 
     #[test]
-    fn test_update_review() {
-        let provider = MockProvider::new_gitlab();
+    fn test_create_review() {
+        let mut provider = MockProvider::new_gitlab();
 
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Original Title".to_string(),
-            description: "Original description".to_string(),
+            description: Some("Original description".to_string()),
             draft: true,
         };
 
@@ -352,19 +327,54 @@ mod tests {
 
         let updated = provider.update_review(update_params).unwrap();
         assert_eq!(updated.title, "Updated Title");
-        assert_eq!(updated.description, "Original description");
+        assert_eq!(
+            updated.description,
+            Some("Original description".to_string())
+        );
+        assert!(!updated.draft);
+    }
+
+    #[test]
+    fn test_update_review() {
+        let mut provider = MockProvider::new_gitlab();
+
+        let params = CreateReviewParams {
+            source_branch: "feature".to_string(),
+            target_branch: "main".to_string(),
+            title: "Original Title".to_string(),
+            description: Some("Original description".to_string()),
+            draft: true,
+        };
+
+        let review = provider.create_review(params).unwrap();
+        let review_id = review.id.clone();
+
+        let update_params = UpdateReviewParams {
+            review_id: review_id.clone(),
+            title: Some("Updated Title".to_string()),
+            description: None,
+            target_branch: None,
+            draft: Some(false),
+        };
+
+        let updated = provider.update_review(update_params).unwrap();
+        assert_eq!(updated.title, "Updated Title");
+        assert_eq!(
+            updated.description,
+            Some("Original description".to_string())
+        );
         assert!(!updated.draft);
     }
 
     #[test]
     fn test_get_review() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
 
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Test MR".to_string(),
-            description: "Test description".to_string(),
+            description: Some("Test description".to_string()),
             draft: true,
         };
 
@@ -377,13 +387,13 @@ mod tests {
 
     #[test]
     fn test_find_review_for_branch() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
 
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Test MR".to_string(),
-            description: "Test description".to_string(),
+            description: Some("Test description".to_string()),
             draft: true,
         };
 
@@ -398,14 +408,14 @@ mod tests {
 
     #[test]
     fn test_simulated_failures() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
 
         provider.fail_next_create();
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Test MR".to_string(),
-            description: "Test description".to_string(),
+            description: Some("Test description".to_string()),
             draft: true,
         };
         assert!(provider.create_review(params).is_err());
@@ -413,13 +423,13 @@ mod tests {
 
     #[test]
     fn test_clear_reviews() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
 
         let params = CreateReviewParams {
             source_branch: "feature".to_string(),
             target_branch: "main".to_string(),
             title: "Test MR".to_string(),
-            description: "Test description".to_string(),
+            description: Some("Test description".to_string()),
             draft: true,
         };
 
@@ -432,13 +442,13 @@ mod tests {
 
     #[test]
     fn test_multiple_reviews_increment_id() {
-        let provider = MockProvider::new_gitlab();
+        let mut provider = MockProvider::new_gitlab();
 
         let params1 = CreateReviewParams {
             source_branch: "feature-1".to_string(),
             target_branch: "main".to_string(),
             title: "First MR".to_string(),
-            description: "First description".to_string(),
+            description: Some("First description".to_string()),
             draft: true,
         };
 
@@ -446,7 +456,7 @@ mod tests {
             source_branch: "feature-2".to_string(),
             target_branch: "main".to_string(),
             title: "Second MR".to_string(),
-            description: "Second description".to_string(),
+            description: Some("Second description".to_string()),
             draft: true,
         };
 

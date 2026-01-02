@@ -33,6 +33,11 @@ enum Commands {
         /// Set the base branch (defaults to main/master)
         #[arg(short, long)]
         base_branch: Option<String>,
+
+        /// Skip authentication (for testing only - only available in debug builds)
+        #[cfg(debug_assertions)]
+        #[arg(long, hide = true)]
+        skip_auth: bool,
     },
 
     /// Submit the current stack as reviews (MRs/PRs)
@@ -68,7 +73,16 @@ fn main() {
         Some(Commands::Init {
             provider,
             base_branch,
-        }) => run_init(provider, base_branch),
+            #[cfg(debug_assertions)]
+            skip_auth,
+        }) => run_init(
+            provider,
+            base_branch,
+            #[cfg(debug_assertions)]
+            skip_auth,
+            #[cfg(not(debug_assertions))]
+            false,
+        ),
         Some(Commands::Submit { ready }) => run_submit(ready),
         Some(Commands::Restack { r#continue, abort }) => run_restack(r#continue, abort),
         Some(Commands::Status { json }) => run_status(json),
@@ -84,8 +98,12 @@ fn main() {
     }
 }
 
-fn run_init(provider: Option<String>, base_branch: Option<String>) -> anyhow::Result<()> {
-    cli::init::run_init(provider, base_branch)?;
+fn run_init(
+    provider: Option<String>,
+    base_branch: Option<String>,
+    skip_auth: bool,
+) -> anyhow::Result<()> {
+    cli::init::run_init(provider, base_branch, skip_auth)?;
     Ok(())
 }
 

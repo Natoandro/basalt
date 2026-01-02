@@ -9,6 +9,9 @@
 //! version: "1"
 //! provider: gitlab
 //! base_branch: main
+//! base_url: "https://gitlab.com"  # Provider instance URL
+//! project_path: "owner/repo"  # Project path for API calls
+//! auth_token: "glpat-xxxxxxxxxxxxxxxxxxxx"  # Stored securely in .git/basalt/
 //!
 //! branches:
 //!   feature-part-1:
@@ -75,6 +78,28 @@ pub struct Metadata {
     /// Base branch for the repository (e.g., "main" or "master")
     pub base_branch: String,
 
+    /// Provider base URL (e.g., "https://gitlab.com" or "https://gitlab.example.com")
+    ///
+    /// This is stored to support self-hosted instances.
+    /// Only extracted from git remote if missing or if API calls fail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+
+    /// Project path (e.g., "owner/repo" or "group/subgroup/project")
+    ///
+    /// This is used for API calls to the provider.
+    /// Only extracted from git remote if missing or if API calls fail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+
+    /// Authentication token for the provider
+    ///
+    /// This is stored in `.git/basalt/metadata.yml` which is never committed.
+    /// The token is only fetched from external sources (glab config, git credential, prompt)
+    /// if this field is None or if authentication fails (expired/revoked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<String>,
+
     /// Per-branch metadata
     #[serde(default)]
     pub branches: HashMap<String, BranchMetadata>,
@@ -114,6 +139,9 @@ impl Metadata {
             version: METADATA_VERSION.to_string(),
             provider,
             base_branch,
+            base_url: None,
+            project_path: None,
+            auth_token: None,
             branches: HashMap::new(),
         }
     }
@@ -323,6 +351,42 @@ pub fn delete_metadata() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Get provider base URL from metadata or extract from git remote
+///
+/// Returns the cached base URL if available, otherwise extracts it from git remote.
+///
+/// # Errors
+///
+/// Returns an error if base URL is not in metadata and extraction fails
+pub fn get_base_url(metadata: &Metadata) -> Result<String> {
+    if let Some(url) = &metadata.base_url {
+        Ok(url.clone())
+    } else {
+        // Need to extract from git remote
+        crate::providers::ProviderType::extract_base_url(&crate::core::git::get_remote_url(
+            "origin",
+        )?)
+    }
+}
+
+/// Get project path from metadata or extract from git remote
+///
+/// Returns the cached project path if available, otherwise extracts it from git remote.
+///
+/// # Errors
+///
+/// Returns an error if project path is not in metadata and extraction fails
+pub fn get_project_path(metadata: &Metadata) -> Result<String> {
+    if let Some(path) = &metadata.project_path {
+        Ok(path.clone())
+    } else {
+        // Need to extract from git remote
+        crate::providers::ProviderType::extract_project_path(&crate::core::git::get_remote_url(
+            "origin",
+        )?)
+    }
 }
 
 #[cfg(test)]

@@ -1,44 +1,23 @@
 //! GitHub provider implementation
 //!
-//! This provider uses the `gh` CLI to interact with GitHub.
-//! All operations are delegated to the gh command-line tool.
+//! This provider will use the GitHub REST API directly to interact with GitHub.
+//! Authentication is handled via Personal Access Tokens (PAT), with automatic
+//! detection from gh CLI config or git credential helper.
+//!
+//! NOTE: This is a stub implementation. GitHub support is planned for post-MVP.
 
 #![allow(dead_code)] // Allow during early development
 
 use crate::error::{Error, Result};
 use crate::providers::{CreateReviewParams, Provider, ProviderType, Review, UpdateReviewParams};
-use std::process::Command;
 
-/// GitHub provider using gh CLI
+/// GitHub provider using REST API (stub)
 pub struct GitHubProvider {}
 
 impl GitHubProvider {
     /// Create a new GitHub provider
     pub fn new() -> Self {
         Self {}
-    }
-
-    /// Execute a gh command and return the output
-    fn run_gh(&self, args: &[&str]) -> Result<std::process::Output> {
-        let output = Command::new(self.cli_name())
-            .args(args)
-            .output()
-            .map_err(|_e| Error::ProviderCliNotFound {
-                provider: self.provider_type().to_string(),
-                cli_name: self.cli_name().to_string(),
-                install_url: self.install_url().to_string(),
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::CommandFailed {
-                command: format!("gh {}", args.join(" ")),
-                exit_code: output.status.code().unwrap_or(-1),
-                stderr: stderr.to_string(),
-            });
-        }
-
-        Ok(output)
     }
 }
 
@@ -53,56 +32,38 @@ impl Provider for GitHubProvider {
         ProviderType::GitHub
     }
 
-    fn check_cli_available(&self) -> Result<()> {
-        Command::new(self.cli_name())
-            .arg("--version")
-            .output()
-            .map_err(|_| Error::ProviderCliNotFound {
-                provider: self.provider_type().to_string(),
-                cli_name: self.cli_name().to_string(),
-                install_url: self.install_url().to_string(),
-            })?;
-
-        Ok(())
-    }
-
     fn check_authentication(&self) -> Result<()> {
-        let output = self.run_gh(&["auth", "status"])?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.contains("Logged in") && !stdout.contains("✓") {
-            return Err(Error::ProviderAuthRequired {
-                provider: self.provider_type().to_string(),
-                auth_command: self.auth_command().to_string(),
-            });
-        }
-
+        // TODO: Implement authentication check
         Ok(())
     }
 
-    fn create_review(&self, _params: CreateReviewParams) -> Result<Review> {
-        // TODO: Implement PR creation via gh
-        // Use: gh pr create --base <branch> --head <branch> --title <title> --body <desc> --draft --json
+    fn authenticate(&mut self) -> Result<()> {
+        // TODO: Implement authentication
+        // Similar to GitLab: read gh token, git credential, or prompt for PAT
+        Err(Error::provider_op(
+            "GitHub authentication not yet implemented",
+        ))
+    }
+
+    fn create_review(&mut self, _params: CreateReviewParams) -> Result<Review> {
+        // TODO: Implement PR creation via GitHub REST API
         Err(Error::provider_op("GitHub PR creation not yet implemented"))
     }
 
-    fn update_review(&self, _params: UpdateReviewParams) -> Result<Review> {
-        // TODO: Implement PR update via gh
-        // Use: gh pr edit <number> --title <title> --body <desc> --ready/--draft --json
+    fn update_review(&mut self, _params: UpdateReviewParams) -> Result<Review> {
+        // TODO: Implement PR update via GitHub REST API
         Err(Error::provider_op("GitHub PR update not yet implemented"))
     }
 
-    fn get_review(&self, _review_id: &str) -> Result<Review> {
-        // TODO: Implement PR retrieval via gh
-        // Use: gh pr view <number> --json
+    fn get_review(&mut self, _review_id: &str) -> Result<Review> {
+        // TODO: Implement PR retrieval via GitHub REST API
         Err(Error::provider_op(
             "GitHub PR retrieval not yet implemented",
         ))
     }
 
-    fn find_review_for_branch(&self, _branch: &str) -> Result<Option<Review>> {
-        // TODO: Implement finding PR by branch
-        // Use: gh pr list --head <branch> --json
+    fn find_review_for_branch(&mut self, _branch: &str) -> Result<Option<Review>> {
+        // TODO: Implement finding PR by branch via GitHub REST API
         Err(Error::provider_op(
             "GitHub PR lookup by branch not yet implemented",
         ))
@@ -119,6 +80,6 @@ mod tests {
         assert_eq!(provider.provider_type(), ProviderType::GitHub);
     }
 
-    // Note: Other tests require gh CLI to be installed and authenticated
-    // Integration tests should be run in CI with proper setup
+    // Note: GitHub provider is a stub for now
+    // Real implementation will be done post-MVP
 }
